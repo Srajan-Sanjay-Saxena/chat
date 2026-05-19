@@ -1,0 +1,14 @@
+.env
+.env.*
+*.exe
+*.test
+*.out
+*.log
+bin/
+dist/
+build/
+coverage/
+coverage.out
+.vscode/
+.idea/
+.DS_Store

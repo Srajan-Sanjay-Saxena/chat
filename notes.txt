@@ -1,0 +1,45 @@
+HTTP + WebSocket chat app notes for Go
+
+Core packages you will likely need:
+- net/http: serve routes and upgrade the connection
+- time: timeouts, ping/pong, deadlines
+- sync: protect shared client lists and broadcast state
+- encoding/json: send and receive structured messages
+- github.com/gorilla/websocket or nhooyr.io/websocket: WebSocket support
+
+Basic HTTP methods/routes you may need:
+- GET /: serve the chat UI or landing page
+- GET /ws: upgrade the HTTP connection to WebSocket
+- GET /health: health check for local testing or deployment
+- POST /login or POST /auth: optional, if you add user auth
+- POST /message: optional, if you want HTTP fallback or message history writes
+
+WebSocket methods and behaviors you will usually implement:
+- Upgrade the request from HTTP to WebSocket
+- Read messages in a loop
+- Write messages to a client in a loop
+- Broadcast a message to all connected clients
+- Handle client connect and disconnect
+- Close the connection cleanly on error
+- Set read deadlines to avoid hanging connections
+- Handle ping/pong to keep the connection alive
+
+Useful server-side structure:
+- Client type or connection wrapper
+- Hub or manager for connected clients
+- Register and unregister channels or functions
+- Broadcast channel for incoming messages
+- Mutex if you store clients in a map or slice
+
+Common message flow:
+- Browser connects to /ws
+- Server upgrades the request
+- Client sends a JSON message
+- Server validates and broadcasts it
+- Other clients receive the message
+
+Good next steps:
+- Start with plain HTTP server and one /ws endpoint
+- Add one connected client first
+- Then add broadcast to multiple clients
+- Then add auth, history, and persistence if needed
