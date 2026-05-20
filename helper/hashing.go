@@ -21,7 +21,7 @@ func CheckPasswordHash(password, hash string) bool {
 		logger.Log.Error("Password hash comparison failed", "error", err)
 		return false
 	}
-	return password == hash 
+	return true
 }
 
 func ValidateEmail(email string) bool {

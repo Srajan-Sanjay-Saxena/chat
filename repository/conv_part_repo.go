@@ -47,3 +47,10 @@ func (r *Repository) GetParticipantsByConversationID(ctx context.Context, conver
 	}
 	return userIDs, nil
 }
+
+func (r *Repository) IsParticipant(ctx context.Context, conversationID, userID uuid.UUID) (bool, error) {
+    var exists bool
+    query := `select exists(select 1 from conversation_participants where conversation_id=$1 and user_id=$2)`
+    err := r.DB.QueryRow(ctx, query, conversationID, userID).Scan(&exists)
+    return exists, err
+}

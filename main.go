@@ -7,6 +7,7 @@ import (
 	"chat-v2/helper"
 	"chat-v2/logger"
 	"chat-v2/repository"
+	"chat-v2/ws"
 	"context"
 	"fmt"
 	"log"
@@ -16,6 +17,7 @@ import (
 	"syscall"
 	"time"
 	"github.com/joho/godotenv"
+	"github.com/google/uuid"
 )
 
 func main() {
@@ -55,6 +57,10 @@ func main() {
 	}
 	logger.Log.Info("JWT maker initialized")
 
+	// Hub for managing WebSocket clients and broadcasting messages
+	hub := ws.NewHub()
+	go hub.Run()
+	logger.Log.Info("WebSocket hub started")
 
 	// Start the server
 	mux := http.NewServeMux()
@@ -65,6 +71,11 @@ func main() {
 	logger.Log.Info("Sign-up handler registered at /signup")
 	mux.Handle("/login", handler.LoginHandler(repo, maker))
 	logger.Log.Info("Login handler registered at /login")
+	mux.Handle("/ws", ws.NewWebSocketHandler(maker, hub, 
+		func(ctx context.Context, conversationID, userID uuid.UUID) (bool, error) {
+			return repo.IsParticipant(ctx, conversationID, userID)
+		},
+	))
 
 	// Start the HTTP server
 	server := &http.Server{

@@ -1,7 +1,7 @@
 # Real-Time Chat System — Project TODO
 
 Status: **In Progress**  
-Current Phase: **2 (Authentication)**  
+Current Phase: **3 (WebSocket core)**  
 Last Updated: May 19, 2026
 
 ---
@@ -59,7 +59,7 @@ Last Updated: May 19, 2026
 
 ---
 
-## Phase 2 — Authentication 🔄 IN PROGRESS
+## Phase 2 — Authentication ✅ COMPLETE
 
 - [x] Task 2.1 — Signup API
   - [x] Validate request (non-empty fields)
@@ -92,7 +92,7 @@ Last Updated: May 19, 2026
 
 ---
 
-## Phase 3 — WebSocket Core ⏳ NOT STARTED
+## Phase 3 — WebSocket Core 🔄 IN PROGRESS
 
 - [ ] Task 3.1 — WebSocket Upgrade Handler
   - [ ] Upgrade HTTP to WebSocket
@@ -131,7 +131,7 @@ Last Updated: May 19, 2026
 ## Phase 4 — Messaging System ⏳ NOT STARTED
 
 - [ ] Task 4.1 — Send Message Flow
-  - [ ] Client → WebSocket → Hub → Redis Publish → Receiver Push → Async DB Save
+  - [ ] Client → WebSocket → Hub → Conversation Subscribers → PostgreSQL Save
   - [ ] Message struct definition
   - [ ] Routing logic
   - [ ] Error handling
@@ -158,24 +158,11 @@ Last Updated: May 19, 2026
 
 ## Phase 5 — Redis Integration ⏳ NOT STARTED
 
-- [ ] Task 5.1 — Redis Connection
-  - [ ] Connect to Redis instance
-  - [ ] Health check/ping
-  - [ ] Graceful reconnection logic
-  - [ ] Connection pooling
-
-- [ ] Task 5.2 — Pub/Sub
-  - [ ] Setup channels (chat_messages, presence_updates)
-  - [ ] Publish message events
-  - [ ] Subscribe to channels
-  - [ ] Route published messages to local clients
-  - [ ] Unsubscribe on disconnect
-
-- [ ] Task 5.3 — Presence System
-  - [ ] Heartbeat every 30s
-  - [ ] Redis TTL for presence keys
-  - [ ] Online/offline status updates
-  - [ ] Broadcast presence to connected clients
+- [ ] Task 5.1 — Post-MVP Scaling
+  - [ ] Add Redis only after single-server chat works
+  - [ ] Use Redis for multi-instance broadcast
+  - [ ] Add Redis-based presence later
+  - [ ] Keep this phase out of the 15-day MVP
 
 ---
 
@@ -266,16 +253,47 @@ Last Updated: May 19, 2026
 ### Must Finish (Blocking Interview)
 - [x] JWT auth
 - [ ] WebSocket read/write pumps
-- [ ] Redis Pub/Sub
+- [ ] Conversation-based message routing
 - [ ] Message persistence
 - [ ] Pagination
-- [ ] Docker
+- [ ] Minimal deployment readiness
 
 ### Nice to Have (Polish)
 - [ ] Read receipts
 - [ ] Typing indicators
 - [ ] File uploads
 - [ ] Notifications
+- [ ] Redis Pub/Sub
+- [ ] Presence system
+
+---
+
+## 15-Day MVP Plan
+
+- [x] Days 1-3 — Finish WebSocket core
+  - [x] JWT-protected `/ws`
+  - [x] Client and hub structs
+  - [x] Read/write pumps
+
+- [ ] Days 4-7 — Message routing
+  - [ ] Conversation subscription model
+  - [ ] Send message through one conversation
+  - [ ] Broadcast only to participants
+
+- [ ] Days 8-10 — Persistence
+  - [ ] Save messages to PostgreSQL
+  - [ ] Load conversation history
+  - [ ] Basic pagination for history
+
+- [ ] Days 11-13 — Basic UI / testing
+  - [ ] Minimal chat window
+  - [ ] Verify login → connect → send → receive
+  - [ ] Test error cases
+
+- [ ] Days 14-15 — Cleanup and demo prep
+  - [ ] Fix edge cases
+  - [ ] Update README
+  - [ ] Prepare demo flow
 
 ---
 
@@ -293,10 +311,10 @@ Last Updated: May 19, 2026
 
 ## Known Issues / Blockers
 
-- [ ] Main.go still calls `db.GetDB()` — need to verify GetDB function exists
-- [ ] Test signup/login endpoints with curl/Postman
-- [ ] Verify JWT_SECRET is set in .env (min 32 chars)
-- [ ] DNS resolution issue from WSL (if using WSL, may need DNS fix)
+- [x] Main.go still calls `db.GetDB()` — need to verify GetDB function exists
+- [x] Test signup/login endpoints with curl/Postman
+- [x] Verify JWT_SECRET is set in .env (min 32 chars)
+- [x] DNS resolution issue from WSL (if using WSL, may need DNS fix)
 
 ---
 
@@ -305,6 +323,7 @@ Last Updated: May 19, 2026
 - All Phase 0-1 tasks complete
 - Phase 2 (auth) complete, ready to test
 - Phase 3 (WebSockets) starts next — most critical for interview
+- Redis is deferred until after the single-server MVP works
 - Focus on clean code + architecture explanation over feature count
 - Regularly commit to git with clear messages
 
