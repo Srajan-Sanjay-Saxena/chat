@@ -4,6 +4,8 @@ import (
 	"chat-v2/logger"
 	"context"
 	"encoding/json"
+	"sync"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/gorilla/websocket"
@@ -16,6 +18,7 @@ type client struct {
 	userID                  uuid.UUID
 	hub                     *Hub
 	isParticipant           func(context.Context, uuid.UUID, uuid.UUID) (bool, error)
+	closeOnce               sync.Once
 }
 
 type Hub struct {
@@ -25,6 +28,9 @@ type Hub struct {
 	subscribe   chan subscription
 	unsubscribe chan subscription
 	broadcast   chan broadcastMessage
+	stop        chan struct{}
+	done        chan struct{}
+	once        sync.Once
 }
 
 type broadcastMessage struct {
@@ -38,6 +44,8 @@ type subscription struct {
 	conversationID uuid.UUID
 }
 
+const participantCheckTimeout = 2 * time.Second
+
 func NewHub() *Hub {
 	return &Hub{
 		clients:     make(map[*client]bool),
@@ -46,10 +54,42 @@ func NewHub() *Hub {
 		subscribe:   make(chan subscription),
 		unsubscribe: make(chan subscription),
 		broadcast:   make(chan broadcastMessage),
+		stop:        make(chan struct{}),
+		done:        make(chan struct{}),
 	}
 }
 
+func (c *client) close() {
+	c.closeOnce.Do(func() {
+		// Try a non-blocking send first to avoid deadlock if called from hub goroutine.
+		select {
+		case c.hub.unregister <- c:
+			// delivered synchronously
+		default:
+			// hub not ready; deliver asynchronously so caller won't block
+			go func(cl *client) {
+				c.hub.unregister <- cl
+			}(c)
+		}
+
+		// Always close the network connection here; hub will close client.send.
+		_ = c.conn.Close()
+	})
+}
+
+func (h *Hub) Stop() {
+	h.once.Do(func() {
+		close(h.stop)
+	})
+}
+
+func (h *Hub) Done() <-chan struct{} {
+	return h.done
+}
+
 func (h *Hub) Run() {
+	defer close(h.done)
+
 	for {
 		select {
 		// Handle registration of new clients
@@ -68,7 +108,17 @@ func (h *Hub) Run() {
 		// Handle broadcasting messages to subscribed clients
 		case message := <-h.broadcast:
 			if message.sender == nil || !message.sender.subscribedConversations[message.conversationID] {
-				logger.Log.Warn("sender not subscribed to conversation", "user_id", message.sender.userID, "conversation_id", message.conversationID)
+				// send non-blocking error ack back to sender when publish is not allowed
+				if message.sender != nil {
+					ack := map[string]string{"type": "error", "action": "publish", "conversation_id": message.conversationID.String(), "reason": "not_subscribed"}
+					if b, err := json.Marshal(ack); err == nil {
+						select {
+						case message.sender.send <- b:
+						default:
+						}
+					}
+				}
+				logger.Log.Warn("sender not subscribed to conversation", "conversation_id", message.conversationID)
 				continue
 			}
 			for client := range h.clients {
@@ -76,8 +126,8 @@ func (h *Hub) Run() {
 					select {
 					case client.send <- message.message:
 					default:
-						close(client.send)
-						delete(h.clients, client)
+						logger.Log.Warn("client send buffer full, disconnecting slow client", "user_id", client.userID, "conversation_id", message.conversationID)
+						client.close()
 					}
 				}
 			}
@@ -89,7 +139,9 @@ func (h *Hub) Run() {
 			allowed := true
 			if sub.client.isParticipant != nil {
 				var err error
-				allowed, err = sub.client.isParticipant(context.Background(), sub.conversationID, sub.client.userID)
+				ctx, cancel := context.WithTimeout(context.Background(), participantCheckTimeout)
+				allowed, err = sub.client.isParticipant(ctx, sub.conversationID, sub.client.userID)
+				cancel()
 				if err != nil {
 					logger.Log.Error("participant check failed", "error", err, "user_id", sub.client.userID, "conversation_id", sub.conversationID)
 					ack := map[string]string{"type": "error", "action": "subscribe", "conversation_id": sub.conversationID.String(), "reason": "check_failed"}
@@ -136,6 +188,14 @@ func (h *Hub) Run() {
 				}
 			}
 			logger.Log.Info("Client unsubscribed from conversation", "user_id", sub.client.userID, "conversation_id", sub.conversationID)
+
+		case <-h.stop:
+			for client := range h.clients {
+				close(client.send)
+				delete(h.clients, client)
+			}
+			logger.Log.Info("hub stopped and clients closed")
+			return
 
 		}
 	}

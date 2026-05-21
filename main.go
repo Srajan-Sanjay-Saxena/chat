@@ -10,14 +10,14 @@ import (
 	"chat-v2/ws"
 	"context"
 	"fmt"
+	"github.com/google/uuid"
+	"github.com/joho/godotenv"
 	"log"
 	"net/http"
 	"os"
 	"os/signal"
 	"syscall"
 	"time"
-	"github.com/joho/godotenv"
-	"github.com/google/uuid"
 )
 
 func main() {
@@ -43,7 +43,6 @@ func main() {
 	}
 	logger.Log.Info("Database connection established")
 
-	
 	// Initialize repositories and handlers
 
 	repo := repository.NewRepository(db.GetDB())
@@ -71,7 +70,8 @@ func main() {
 	logger.Log.Info("Sign-up handler registered at /signup")
 	mux.Handle("/login", handler.LoginHandler(repo, maker))
 	logger.Log.Info("Login handler registered at /login")
-	mux.Handle("/ws", ws.NewWebSocketHandler(maker, hub, 
+	originAllowlist := config.ParseAllowedOrigins(cfg.WSAllowedOrigins)
+	mux.Handle("/ws", ws.NewWebSocketHandler(repo, maker, hub, originAllowlist,
 		func(ctx context.Context, conversationID, userID uuid.UUID) (bool, error) {
 			return repo.IsParticipant(ctx, conversationID, userID)
 		},
@@ -79,7 +79,7 @@ func main() {
 
 	// Start the HTTP server
 	server := &http.Server{
-		Addr: fmt.Sprintf(":%s", port),
+		Addr:    fmt.Sprintf(":%s", port),
 		Handler: mux,
 	}
 
@@ -100,6 +100,9 @@ func main() {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	server.Shutdown(ctx)
+	hub.Stop()
+	<-hub.Done()
+	logger.Log.Info("WebSocket hub stopped")
 
 	// Close database connection
 	db.GetDB().Close()

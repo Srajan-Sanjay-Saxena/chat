@@ -2,6 +2,8 @@ package ws
 
 import (
 	"chat-v2/logger"
+	"chat-v2/service"
+	"context"
 	"encoding/json"
 	"time"
 
@@ -16,11 +18,12 @@ type inMessage struct {
 }
 
 type outMessage struct {
+	Type           string    `json:"type"`
 	ID             uuid.UUID `json:"id"`
 	SenderID       uuid.UUID `json:"sender_id"`
 	ConversationID uuid.UUID `json:"conversation_id"`
 	Content        string    `json:"content"`
-	CreatedAt      int64     `json:"created_at"`
+	CreatedAt      time.Time `json:"created_at"`
 }
 
 const writeWait = 10 * time.Second
@@ -28,7 +31,13 @@ const pongWait = 60 * time.Second
 const maxMsgSize = 512
 const pingPeriod = (pongWait * 9) / 10
 
-func (client *client) readPump() {
+func (client *client) readPump(ctx context.Context, messageService *service.MessageService) {
+
+	// Adding deadline to prevent hanging connections
+	client.conn.SetReadLimit(maxMsgSize)
+	client.conn.SetReadDeadline(time.Now().Add(pongWait))
+	client.conn.SetPongHandler(func(string) error { client.conn.SetReadDeadline(time.Now().Add(pongWait)); return nil })
+
 	for {
 		// Read message from WebSocket connection
 		_, message, err := client.conn.ReadMessage()
@@ -45,26 +54,41 @@ func (client *client) readPump() {
 		}
 
 		// Validate incoming message
-		if inMsg.ConversationID == uuid.Nil || inMsg.Content == "" {
-			logger.Log.Error("invalid message received", "conversation_id", inMsg.ConversationID, "content_length", len(inMsg.Content))
+		if inMsg.Type != "message" && inMsg.Type != "subscribe" && inMsg.Type != "unsubscribe" {
+			logger.Log.Error("invalid message type received", "type", inMsg.Type)
 			continue
 		}
 
-		if inMsg.Type != "message" && inMsg.Type != "subscribe" && inMsg.Type != "unsubscribe" {
-			logger.Log.Error("invalid message type received", "type", inMsg.Type)
+		if inMsg.ConversationID == uuid.Nil {
+			logger.Log.Error("invalid conversation id received", "type", inMsg.Type)
+			continue
+		}
+
+		if inMsg.Type == "message" && inMsg.Content == "" {
+			logger.Log.Error("invalid message received", "conversation_id", inMsg.ConversationID, "content_length", len(inMsg.Content))
 			continue
 		}
 
 		// Handle different message types
 		switch inMsg.Type {
 		case "message":
-			// Create outgoing message with additional metadata
+			savedMessage, err := messageService.CreateMessage(ctx, client.userID, inMsg.ConversationID, inMsg.Content)
+			if err != nil {
+				if err == service.ErrNotParticipant {
+					logger.Log.Warn("client is not a participant for message publish", "user_id", client.userID, "conversation_id", inMsg.ConversationID)
+				} else {
+					logger.Log.Error("error creating message", "error", err)
+				}
+				continue
+			}
+
 			outMsg := outMessage{
-				ID:             uuid.New(),
-				SenderID:       client.userID,
-				ConversationID: inMsg.ConversationID,
-				Content:        inMsg.Content,
-				CreatedAt:      time.Now().Unix(),
+				Type:           "message",
+				ID:             savedMessage.ID,
+				SenderID:       savedMessage.SenderID,
+				ConversationID: savedMessage.ConversationID,
+				Content:        savedMessage.Content,
+				CreatedAt:      savedMessage.CreatedAt,
 			}
 			outMsgBytes, err := json.Marshal(outMsg)
 			if err != nil {
@@ -93,17 +117,10 @@ func (client *client) readPump() {
 			logger.Log.Info("Client unsubscribed from conversation", "user_id", client.userID, "conversation_id", inMsg.ConversationID)
 		}
 
-		// Adding deadline to prevent hanging connections
-		client.conn.SetReadLimit(maxMsgSize)
-		client.conn.SetReadDeadline(time.Now().Add(pongWait))
-		client.conn.SetPongHandler(func(string) error { client.conn.SetReadDeadline(time.Now().Add(pongWait)); return nil })
-
 	}
 
-	// Unregister client from hub when done
-	client.hub.unregister <- client
-	// close the WebSocket connection
-	client.conn.Close()
+	// Close the connection and unregister the client from the hub
+	client.close()
 }
 
 func (client *client) writePump() {
@@ -113,7 +130,7 @@ func (client *client) writePump() {
 	// Ensure the WebSocket connection is closed when this function exits
 	defer func() {
 		ticker.Stop()
-		client.conn.Close()
+		client.close()
 	}()
 
 	for {
@@ -121,12 +138,14 @@ func (client *client) writePump() {
 		case message, ok := <-client.send:
 			if !ok {
 				// Channel closed, close WebSocket connection
-				client.conn.WriteMessage(websocket.CloseMessage, websocket.FormatCloseMessage(websocket.CloseNormalClosure, ""))
+				logger.Log.Info("send channel closed, closing connection", "user_id", client.userID)
+				client.close()
 				return
 			}
 			// Write message to WebSocket connection
 			if err := client.conn.WriteMessage(websocket.TextMessage, message); err != nil {
 				logger.Log.Error("error writing message to client", "error", err)
+				client.close()
 				return
 			}
 			// Log the message sent to the client
@@ -136,6 +155,7 @@ func (client *client) writePump() {
 			// Send a ping message to the client
 			if err := client.conn.WriteMessage(websocket.PingMessage, nil); err != nil {
 				logger.Log.Error("error sending ping to client", "error", err)
+				client.close()
 				return
 			}
 			logger.Log.Info("ping sent to client", "user_id", client.userID)

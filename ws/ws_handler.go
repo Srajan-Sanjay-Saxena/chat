@@ -3,6 +3,8 @@ package ws
 import (
 	"chat-v2/helper"
 	"chat-v2/logger"
+	"chat-v2/repository"
+	"chat-v2/service"
 	"context"
 	"net/http"
 	"strings"
@@ -11,7 +13,7 @@ import (
 	"github.com/gorilla/websocket"
 )
 
-func NewWebSocketHandler(maker *helper.JWTMaker, hub *Hub, isParticipant func(context.Context, uuid.UUID, uuid.UUID) (bool, error)) http.Handler {
+func NewWebSocketHandler(repo *repository.Repository, maker *helper.JWTMaker, hub *Hub, allowedOrigins []string, isParticipant func(context.Context, uuid.UUID, uuid.UUID) (bool, error)) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// Method check
 		if r.Method != http.MethodGet {
@@ -29,7 +31,7 @@ func NewWebSocketHandler(maker *helper.JWTMaker, hub *Hub, isParticipant func(co
 
 		// Expected format: "Bearer <token
 		const prefix = "Bearer "
-		if !strings.HasPrefix(authHeader, prefix){
+		if !strings.HasPrefix(authHeader, prefix) {
 			logger.Log.Error("Invalid Authorization header format", "header", authHeader)
 			http.Error(w, "Invalid Authorization header format", http.StatusUnauthorized)
 			return
@@ -46,7 +48,7 @@ func NewWebSocketHandler(maker *helper.JWTMaker, hub *Hub, isParticipant func(co
 		// Upgrade the connection to WebSocket
 		upgrader := websocket.Upgrader{
 			CheckOrigin: func(r *http.Request) bool {
-				return true // Allow all origins for simplicity
+				return isAllowedOrigin(r.Header.Get("Origin"), allowedOrigins)
 			},
 		}
 
@@ -57,24 +59,52 @@ func NewWebSocketHandler(maker *helper.JWTMaker, hub *Hub, isParticipant func(co
 		}
 
 		// Handle the WebSocket connection (e.g., read/write messages)
-		go handleWebSocketConnection(conn, hub, claims.ID, isParticipant)
+		go handleWebSocketConnection(repo, conn, hub, claims.ID, isParticipant)
 
 	})
 }
 
-func handleWebSocketConnection(conn *websocket.Conn, hub *Hub, userID uuid.UUID, isParticipant func(context.Context, uuid.UUID, uuid.UUID) (bool, error)) {
+func isAllowedOrigin(origin string, allowedOrigins []string) bool {
+	origin = strings.TrimSpace(strings.TrimSuffix(origin, "/"))
+	if len(allowedOrigins) == 0 {
+		return origin != "" && (strings.HasPrefix(origin, "http://localhost") || strings.HasPrefix(origin, "http://127.0.0.1"))
+	}
+
+	if origin == "" {
+		return false
+	}
+
+	for _, allowed := range allowedOrigins {
+		allowed = strings.TrimSpace(strings.TrimSuffix(allowed, "/"))
+		if allowed == "*" {
+			return true
+		}
+		if allowed != "" && strings.EqualFold(origin, allowed) {
+			return true
+		}
+	}
+
+	return false
+}
+
+func handleWebSocketConnection(repo *repository.Repository, conn *websocket.Conn, hub *Hub, userID uuid.UUID, isParticipant func(context.Context, uuid.UUID, uuid.UUID) (bool, error)) {
 	// Create a new client and register it with the hub
 	client := &client{
-		conn: conn,
-		send: make(chan []byte, 256),
+		conn:                    conn,
+		send:                    make(chan []byte, 256),
 		subscribedConversations: make(map[uuid.UUID]bool),
-		userID: userID,
-		hub: hub,
-		isParticipant: isParticipant,
+		userID:                  userID,
+		hub:                     hub,
+		isParticipant:           isParticipant,
 	}
 	hub.register <- client
+	messageService := service.NewMessageService(repo, isParticipant)
+	ctx, cancel := context.WithCancel(context.Background())
 
 	// Start goroutines for reading and writing messages
-	go client.readPump()
+	go func() {
+		defer cancel()
+		client.readPump(ctx, messageService)
+	}()
 	go client.writePump()
 }
