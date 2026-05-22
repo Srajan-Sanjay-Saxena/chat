@@ -10,7 +10,7 @@ create table if not exists users (
 
 create table if not exists conversations (
     id uuid primary key default uuid_generate_v4(),
-    title text,
+    title text unique not null,
     created_at timestamptz not null default now()
 );
 

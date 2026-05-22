@@ -2,15 +2,17 @@ package repository_test
 
 import (
 	"chat-v2/db"
+	"chat-v2/helper"
 	"chat-v2/logger"
 	"chat-v2/repository"
 	"context"
+	"fmt"
 	"os"
 	"testing"
-	"github.com/google/uuid"
 	"time"
+
+	"github.com/google/uuid"
 	"github.com/joho/godotenv"
-	"chat-v2/helper"
 )
 
 var repo *repository.Repository
@@ -165,12 +167,87 @@ func TestFlow(t *testing.T) {
 	}
 
 	// Get messages by conversation ID
-	messages, err := repo.GetMessagesByConversationID(context.Background(), conversation.ID)
+	msgResp, err := repo.GetMessagesByConversationID(context.Background(), conversation.ID, nil, 10)
 	if err != nil {
 		t.Fatalf("Failed to get messages by conversation ID: %v", err)
 	}
 
-	if len(messages) != 1 || (messages[0].ID != message.ID || messages[0].Content != message.Content || messages[0].SenderID != message.SenderID) {
+	if len(msgResp.Messages) != 1 || (msgResp.Messages[0].ID != message.ID || msgResp.Messages[0].Content != message.Content || msgResp.Messages[0].SenderID != message.SenderID) {
 		t.Errorf("Fetched messages do not match created message")
+	}
+
+	// Pagination metadata expectations for a single-page result
+	if msgResp.NextCursor != "" {
+		t.Errorf("expected empty NextCursor for single page, got=%#v", msgResp.NextCursor)
+	}
+	if msgResp.HasMore {
+		t.Errorf("expected HasMore=false for single page, got=true")
+	}
+}
+
+func TestMessagePaginationCursor(t *testing.T) {
+	// Setup: create user and conversation
+	user := &db.User{
+		ID:           uuid.New(),
+		Username:     "pag_user",
+		PasswordHash: "pwd",
+		Email:        "pag_user@example.com",
+		CreatedAt:    time.Now(),
+	}
+	if err := repo.CreateUser(context.Background(), user); err != nil {
+		t.Fatalf("create user: %v", err)
+	}
+
+	conversation := &db.Conversation{
+		ID:        uuid.New(),
+		Title:     "pagination convo",
+		CreatedAt: time.Now(),
+	}
+	if err := repo.CreateConversation(context.Background(), conversation); err != nil {
+		t.Fatalf("create conversation: %v", err)
+	}
+	if err := repo.AddParticipant(context.Background(), conversation.ID, user.ID); err != nil {
+		t.Fatalf("add participant: %v", err)
+	}
+
+	// Insert 25 messages (newest first: i=0 newest)
+	total := 25
+	for i := 0; i < total; i++ {
+		m := &db.Message{
+			ID:             uuid.New(),
+			ConversationID: conversation.ID,
+			SenderID:       user.ID,
+			Content:        fmt.Sprintf("msg %d", i),
+			CreatedAt:      time.Now().Add(time.Duration(-i) * time.Second),
+		}
+		if err := repo.CreateMessage(context.Background(), m); err != nil {
+			t.Fatalf("create message %d: %v", i, err)
+		}
+	}
+
+	// Page through with limit=10
+	var seen int
+	var before *string
+	limit := 10
+	for {
+		resp, err := repo.GetMessagesByConversationID(context.Background(), conversation.ID, before, limit)
+		if err != nil {
+			t.Fatalf("get messages page: %v", err)
+		}
+		seen += len(resp.Messages)
+
+		if resp.HasMore {
+			if resp.NextCursor == "" {
+				t.Fatalf("HasMore=true but NextCursor is empty")
+			}
+			// NextCursor is already encoded; use it directly for the next request
+			before = &resp.NextCursor
+			continue
+		}
+		break
+	}
+
+	if seen != total {
+		t.Fatalf("expected to see %d messages after pagination, saw %d", total, seen)
 	}
 }

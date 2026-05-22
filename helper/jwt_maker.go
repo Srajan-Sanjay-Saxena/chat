@@ -6,6 +6,8 @@ import (
 	"errors"
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/google/uuid"
+	"net/http"
+	"strings"
 )
 
 type JWTMaker struct {
@@ -103,4 +105,27 @@ func (maker *JWTMaker) VerifyToken(tokenStr string) (*UserClaims, error) {
 	}
 	
 	return claims, nil
+}
+
+
+func JWTVerifier(r *http.Request, maker *JWTMaker) (uuid.UUID, error) {
+	// Get the JWT token from the Authorization header
+	authHeader := r.Header.Get("Authorization")
+	if authHeader == "" {
+		return uuid.Nil, fmt.Errorf("authorization header is missing")
+	}
+
+	// Expected format: "Bearer <token
+	const prefix = "Bearer "
+	if !strings.HasPrefix(authHeader, prefix) {
+		return uuid.Nil, fmt.Errorf("invalid authorization header format: expected 'Bearer <token>'")
+	}
+	jwtToken := strings.TrimPrefix(authHeader, prefix)
+
+	// Verify the JWT token
+	claims, err := maker.VerifyToken(jwtToken)
+	if err != nil {
+		return uuid.Nil, fmt.Errorf("invalid token: %w", err)
+	}
+	return claims.ID, nil
 }

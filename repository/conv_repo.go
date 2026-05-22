@@ -3,6 +3,7 @@ package repository
 import (
 	"chat-v2/db"
 	"context"
+	"time"
 	"github.com/google/uuid"
 )
 
@@ -49,4 +50,29 @@ func (r *Repository) GetConversationsByUserID(ctx context.Context, userID uuid.U
 		conversations = append(conversations, &conversation)
 	}
 	return conversations, nil
+}
+
+func (r *Repository) CreateConversationWithParticipants(ctx context.Context, title string, participantIDs []uuid.UUID) error {
+	tx, err := r.DB.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer func() {
+		if err != nil {
+			tx.Rollback(ctx)
+		} else {
+			tx.Commit(ctx)
+		}
+	}()
+
+	conversation := &db.Conversation{
+		ID:        uuid.New(),
+		Title:     title,
+		CreatedAt: time.Now(),
+	}
+
+	if err := r.CreateConversation(ctx, conversation); err != nil {
+		return err
+	}
+	return nil
 }

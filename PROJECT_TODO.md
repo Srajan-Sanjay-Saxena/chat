@@ -130,17 +130,17 @@ Last Updated: May 19, 2026
 
 ## Phase 4 — Messaging System ⏳ NOT STARTED
 
-- [ ] Task 4.1 — Send Message Flow
-  - [ ] Client → WebSocket → Hub → Conversation Subscribers → PostgreSQL Save
-  - [ ] Message struct definition
-  - [ ] Routing logic
-  - [ ] Error handling
+- [x] Task 4.1 — Send Message Flow
+  - [x] Client → WebSocket → Hub → Conversation Subscribers → PostgreSQL Save
+  - [x] Message struct definition
+  - [x] Routing logic
+  - [x] Error handling
 
-- [ ] Task 4.2 — Private Conversations
-  - [ ] Create conversation endpoint
-  - [ ] Add participants to conversation
-  - [ ] Fetch conversation list for user
-  - [ ] Validate permissions
+- [x] Task 4.2 — Private Conversations
+  - [x] Create conversation endpoint
+  - [x] Add participants to conversation
+  - [x] Fetch conversation list for user
+  - [x] Validate permissions
 
 - [ ] Task 4.3 — Group Chat
   - [ ] Create group endpoint
@@ -275,15 +275,15 @@ Last Updated: May 19, 2026
   - [x] Client and hub structs
   - [x] Read/write pumps
 
-- [ ] Days 4-7 — Message routing
-  - [ ] Conversation subscription model
-  - [ ] Send message through one conversation
-  - [ ] Broadcast only to participants
+- [x] Days 4-7 — Message routing
+  - [x] Conversation subscription model
+  - [x] Send message through one conversation
+  - [x] Broadcast only to participants
 
-- [ ] Days 8-10 — Persistence
-  - [ ] Save messages to PostgreSQL
-  - [ ] Load conversation history
-  - [ ] Basic pagination for history
+- [x] Days 8-10 — Persistence
+  - [x] Save messages to PostgreSQL
+  - [x] Load conversation history
+  - [x] Basic pagination for history
 
 - [ ] Days 11-13 — Basic UI / testing
   - [ ] Minimal chat window

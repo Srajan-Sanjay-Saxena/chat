@@ -3,6 +3,7 @@ package repository
 import (
 	"chat-v2/db"
 	"context"
+
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
@@ -16,7 +17,7 @@ type UserRepository interface {
 type MessageRepository interface {
 	CreateMessage(ctx context.Context, message *db.Message) error
 	GetMessageByID(ctx context.Context, id uuid.UUID) (*db.Message, error)
-	GetMessagesByConversationID(ctx context.Context, conversationID uuid.UUID) ([]*db.Message, error)
+	GetMessagesByConversationID(ctx context.Context, conversationID uuid.UUID, before *string, limit int) (*MessageResponse, error)
 }
 
 type ConversationRepository interface {

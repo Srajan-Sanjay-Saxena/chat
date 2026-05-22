@@ -70,6 +70,12 @@ func main() {
 	logger.Log.Info("Sign-up handler registered at /signup")
 	mux.Handle("/login", handler.LoginHandler(repo, maker))
 	logger.Log.Info("Login handler registered at /login")
+	mux.Handle("/conversation", handler.ConversationHandler(repo, maker))
+	logger.Log.Info("Conversation handler registered at /conversation")
+	mux.Handle("/past_messages", handler.MessageHandler(repo, maker))
+	logger.Log.Info("Message handler registered at /Past_messages")
+	
+	mux.Handle("/conversation/list", handler.ConvListHandler(repo, maker))
 	originAllowlist := config.ParseAllowedOrigins(cfg.WSAllowedOrigins)
 	mux.Handle("/ws", ws.NewWebSocketHandler(repo, maker, hub, originAllowlist,
 		func(ctx context.Context, conversationID, userID uuid.UUID) (bool, error) {

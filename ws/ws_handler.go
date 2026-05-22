@@ -21,30 +21,13 @@ func NewWebSocketHandler(repo *repository.Repository, maker *helper.JWTMaker, hu
 			return
 		}
 
-		// Get the JWT token from query parameters
-		authHeader := r.Header.Get("Authorization")
-		if authHeader == "" {
-			logger.Log.Error("Authorization header is missing in WebSocket request")
-			http.Error(w, "Authorization header is required", http.StatusUnauthorized)
-			return
-		}
-
-		// Expected format: "Bearer <token
-		const prefix = "Bearer "
-		if !strings.HasPrefix(authHeader, prefix) {
-			logger.Log.Error("Invalid Authorization header format", "header", authHeader)
-			http.Error(w, "Invalid Authorization header format", http.StatusUnauthorized)
-			return
-		}
-		jwtToken := strings.TrimPrefix(authHeader, prefix)
-
-		// Verify the JWT token
-		claims, err := maker.VerifyToken(jwtToken)
+		// call JWTVerifier from helper to verify token and extract user ID
+		userID, err := helper.JWTVerifier(r, maker)
 		if err != nil {
-			http.Error(w, "Invalid token: "+err.Error(), http.StatusUnauthorized)
+			logger.Log.Error("JWT verification failed in WebSocket handler", "error", err)
+			http.Error(w, "Unauthorized: "+err.Error(), http.StatusUnauthorized)
 			return
 		}
-
 		// Upgrade the connection to WebSocket
 		upgrader := websocket.Upgrader{
 			CheckOrigin: func(r *http.Request) bool {
@@ -59,7 +42,7 @@ func NewWebSocketHandler(repo *repository.Repository, maker *helper.JWTMaker, hu
 		}
 
 		// Handle the WebSocket connection (e.g., read/write messages)
-		go handleWebSocketConnection(repo, conn, hub, claims.ID, isParticipant)
+		go handleWebSocketConnection(repo, conn, hub, userID, isParticipant)
 
 	})
 }

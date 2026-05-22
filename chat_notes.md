@@ -401,6 +401,9 @@ Use wrapping style with %w (fmt.Errorf) so callers can detect JWT errors.
 
 ---
 
+
+---
+
 ## Phase 3 — WebSocket Core (checklist)
 
 This checklist collects the concrete tasks, guardrails and best-practices for the WebSocket layer (Phase 3).
@@ -519,3 +522,69 @@ Security & origin: tighten Upgrader.CheckOrigin for prod and consider token refr
 - The WebSocket phase is effectively done for the current goal of a simple single-server chat MVP.
 - The code now has the pieces needed to support the next phase of product work without revisiting the socket foundation.
 - The remaining work is mostly operational polish and scale hardening, not core correctness.
+
+
+## Message Routing — Detailed Plan
+
+This section contains a step-by-step plan for Phase 4: Message routing (client → hub → subscribers → persistence). Each step below maps to the project TODOs and includes implementation notes and acceptance criteria.
+
+1) Design message routing model (goal & acceptance)
+    - Goal: Define how messages flow from a connected client, through the Hub, to conversation subscribers and the persistence layer.
+    - Acceptance: Sequence diagram + small prototype showing a single message routed to N participants.
+
+2) Define wire + DB message schema
+    - Wire (WebSocket) envelope: { type, conversation_id, message_id, sender_id, payload, created_at, meta }
+    - DB row: include conversation_id, sender_id, content, created_at, delivered/acked flags (optional separate table)
+    - Acceptance: JSON schema and SQL migration agreed and committed.
+
+3) Conversation subscription management
+    - Maintain map[conversation_id] -> set(clientIDs) and client -> set(conversationIDs).
+    - Ensure concurrency-safe access (sync.RWMutex or sharded maps) and consider per-conversation goroutine for routing.
+    - Acceptance: APIs to Subscribe/Unsubscribe tested with concurrent join/leave.
+
+4) Implement Hub routing (register/unregister)
+    - Hub responsibilities: register/unregister clients, accept inbound messages, route to subscribers, broadcast control messages.
+    - Use channels for register/unregister/inbound; keep select loop focused and small.
+    - Acceptance: Hub unit tests for register/unregister and broadcast to multiple clients.
+
+5) Client subscription mapping to conversations
+    - Client struct holds `send chan []byte`, `userID`, `subscriptions map[uuid]bool`.
+    - On upgrade, validate JWT, create Client, register with Hub, optionally auto-subscribe to recent conversations.
+    - Acceptance: Clean client lifecycle with no goroutine leaks after disconnect.
+
+6) Delivery guarantees and acknowledgements
+    - Decide default: at-most-once for MVP; design hooks for at-least-once (message IDs + ACKs) later.
+    - Define ACK envelope and lightweight retry/backoff policy; consider idempotency keys for DB writes.
+    - Acceptance: ACK round-trip for a message in integration test (optional for MVP but planned).
+
+7) Persistence pipeline and DB integration
+    - Accept messages in Hub, enqueue to a worker pool for async DB insert (to avoid blocking broadcast).
+    - Use buffered channel / bounded worker pool; on persistent failures push to retry queue or DLQ.
+    - Acceptance: Messages are saved within N seconds in integration test; errors retried X times.
+
+8) Error handling, retries, dead-letter queue
+    - Centralize error types; on transient DB error retry, on permanent error log and move to DLQ table.
+    - Emit metrics for failures and delivery latency.
+    - Acceptance: Retries observed and DLQ entries created for persistent failures.
+
+9) Heartbeats, presence & connection cleanup
+    - Implement ping/pong in write-pump; detect stale connections and remove from Hub.
+    - Cleanup: close send channel, unregister client, remove subscriptions, stop goroutines.
+    - Acceptance: Simulated stale connection removed and resources freed.
+
+10) Testing: unit, integration, load tests
+    - Unit test Hub logic, client lifecycle, subscription maps.
+    - Integration test: login -> connect /ws -> send message -> other client receives -> DB contains message.
+    - Load test: simulate 1000 concurrent clients sending messages; measure latency and memory.
+    - Acceptance: basic integration tests pass locally; load test results recorded.
+
+11) Documentation, examples, and diagrams
+    - Add sequence diagrams (Mermaid) and a short example client script (JS or Go) demonstrating connect/send/ack.
+    - Acceptance: docs committed and referenced from README.
+
+12) Study topics & recommended books
+    - See STUDY_TOPICS.md for curated reading and exercises to deepen understanding.
+
+---
+
+Refer to STUDY_TOPICS.md for reading material and practical exercises.

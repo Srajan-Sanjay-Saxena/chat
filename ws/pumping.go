@@ -82,6 +82,7 @@ func (client *client) readPump(ctx context.Context, messageService *service.Mess
 				continue
 			}
 
+			
 			outMsg := outMessage{
 				Type:           "message",
 				ID:             savedMessage.ID,

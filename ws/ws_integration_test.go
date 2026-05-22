@@ -180,15 +180,23 @@ func TestWebSocketIntegration_PublishSubscribePersist(t *testing.T) {
 		t.Fatalf("expected created_at to be populated")
 	}
 
-	messages, err := testRepo.GetMessagesByConversationID(context.Background(), conversationID)
+	msgResp, err := testRepo.GetMessagesByConversationID(context.Background(), conversationID, nil, 10)
 	if err != nil {
 		t.Fatalf("fetch persisted messages: %v", err)
 	}
-	if len(messages) != 1 {
-		t.Fatalf("expected 1 persisted message, got %d", len(messages))
+	if len(msgResp.Messages) != 1 {
+		t.Fatalf("expected 1 persisted message, got %d", len(msgResp.Messages))
 	}
-	if messages[0].ID != msg.ID || messages[0].Content != content || messages[0].SenderID != userID {
-		t.Fatalf("persisted row mismatch: got=%+v want=%+v", messages[0], msg)
+	if msgResp.Messages[0].ID != msg.ID || msgResp.Messages[0].Content != content || msgResp.Messages[0].SenderID != userID {
+		t.Fatalf("persisted row mismatch: got=%+v want=%+v", msgResp.Messages[0], msg)
+	}
+
+	// Verify pagination metadata for single-page result
+	if msgResp.NextCursor != "" {
+		t.Fatalf("expected empty NextCursor for single page, got=%#v", msgResp.NextCursor)
+	}
+	if msgResp.HasMore {
+		t.Fatalf("expected HasMore=false for single page, got=true")
 	}
 
 	if err := conn.SetReadDeadline(time.Now().Add(2 * time.Second)); err == nil {
