@@ -484,6 +484,20 @@ Security & origin: tighten Upgrader.CheckOrigin for prod and consider token refr
 
 ### Runtime Flow
 1. The client sends an authenticated HTTP request to `/ws`.
+
+---
+
+Notes index (split into compact docs):
+
+- `docs/windows_processes.md` — PowerShell / process commands and examples.
+- `docs/go_patterns.md` — context, goroutines, HTTP patterns, env loading.
+- `docs/schema_migrations.md` — schema overview, migrations, indexes, test-reset notes.
+- `docs/repository_layer.md` — repo interfaces, transactions, best practices.
+- `docs/pgx_reference.md` — pgx/pgxpool quick reference.
+- `docs/errors_and_wrapping.md` — error wrapping and `errors.Is` guidance.
+- `docs/changes_summary.md` — concise list of recent changes and rationale.
+
+If you'd like a different split (more/less files or alternative grouping), tell me which sections to combine or expand.
 2. The handler validates the bearer token and upgrades the request.
 3. The new client is registered in the hub and its pumps start.
 4. Subscribe and unsubscribe requests are processed by the hub, not by the client goroutine.
@@ -599,4 +613,24 @@ tried to make tests do rollback and migration before adding any thing to db
 Failed due to concurrency issues
 tried using transaction in migrate func
 succeded
+
+
+
+
+TODO :- ADD async message persistence for better respomsiveness and throughput
+
+Stage 1
+WebSocket → DB
+
+Stage 2
+WebSocket → DB + idempotency
+
+// Much Later
+
+Stage 3
+WebSocket → Redis queue → workers → DB
+
+Stage 4
+If traffic becomes huge:
+WebSocket → Kafka → workers → DB
 
