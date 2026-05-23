@@ -17,17 +17,23 @@ func NewWebSocketHandler(repo *repository.Repository, maker *helper.JWTMaker, hu
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// Method check
 		if r.Method != http.MethodGet {
+			logger.Log.Warn("WebSocket connection attempt with invalid method", "method", r.Method)
 			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 			return
 		}
 
-		// call JWTVerifier from helper to verify token and extract user ID
-		userID, err := helper.JWTVerifier(r, maker)
-		if err != nil {
-			logger.Log.Error("JWT verification failed in WebSocket handler", "error", err)
-			http.Error(w, "Unauthorized: "+err.Error(), http.StatusUnauthorized)
-			return
+		// Get User ID from context (set by JWT middleware
+		userID, ok := helper.GetUserFromContext(r.Context())
+		if !ok {
+			var err error
+			userID, err = helper.JWTVerifier(r, maker)
+			if err != nil {
+				logger.Log.Warn("WebSocket connection attempt without user ID in context")
+				http.Error(w, "Unauthorized: user ID not found in context", http.StatusUnauthorized)
+				return
+			}
 		}
+
 		// Upgrade the connection to WebSocket
 		upgrader := websocket.Upgrader{
 			CheckOrigin: func(r *http.Request) bool {
@@ -37,6 +43,7 @@ func NewWebSocketHandler(repo *repository.Repository, maker *helper.JWTMaker, hu
 
 		conn, err := upgrader.Upgrade(w, r, nil)
 		if err != nil {
+			logger.Log.Error("Failed to upgrade to WebSocket", "error", err)
 			http.Error(w, "Failed to upgrade to WebSocket: "+err.Error(), http.StatusInternalServerError)
 			return
 		}

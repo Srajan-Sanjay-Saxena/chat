@@ -588,3 +588,15 @@ This section contains a step-by-step plan for Phase 4: Message routing (client â
 ---
 
 Refer to STUDY_TOPICS.md for reading material and practical exercises.
+
+
+
+// 23 - 05 - 2026
+Learn about middleware for http
+created JWTMiddleware
+broke conversations into multiple routes
+tried to make tests do rollback and migration before adding any thing to db
+Failed due to concurrency issues
+tried using transaction in migrate func
+succeded
+

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"chat-v2/Middleware"
 	"chat-v2/config"
 	"chat-v2/db"
 	"chat-v2/handler"
@@ -63,6 +64,7 @@ func main() {
 
 	// Start the server
 	mux := http.NewServeMux()
+	authMiddleware := Middleware.JWTMiddleware(maker)
 	logger.Log.Info("Registering handlers")
 	mux.Handle("/health", handler.HealthCheckHandler())
 	logger.Log.Info("Health check handler registered at /health")
@@ -70,18 +72,20 @@ func main() {
 	logger.Log.Info("Sign-up handler registered at /signup")
 	mux.Handle("/login", handler.LoginHandler(repo, maker))
 	logger.Log.Info("Login handler registered at /login")
-	mux.Handle("/conversation", handler.ConversationHandler(repo, maker))
-	logger.Log.Info("Conversation handler registered at /conversation")
-	mux.Handle("/past_messages", handler.MessageHandler(repo, maker))
-	logger.Log.Info("Message handler registered at /Past_messages")
-	
-	mux.Handle("/conversation/list", handler.ConvListHandler(repo, maker))
+
+	mux.Handle("/conversation/join", authMiddleware(handler.ConversationJoinHandler(repo, maker)))
+	mux.Handle("/conversation/leave", authMiddleware(handler.ConversationLeaveHandler(repo, maker)))
+	mux.Handle("/conversation/create", authMiddleware(handler.ConvCreateHandler(repo, maker)))
+	mux.Handle("/conversation/list", authMiddleware(handler.ConvListHandler(repo, maker)))
+	logger.Log.Info("Conversation handlers registered under /conversation/join and /conversation/leave")
+	mux.Handle("/past_messages", authMiddleware(handler.MessageHandler(repo, maker)))
+	logger.Log.Info("Message handler registered at /past_messages")
 	originAllowlist := config.ParseAllowedOrigins(cfg.WSAllowedOrigins)
-	mux.Handle("/ws", ws.NewWebSocketHandler(repo, maker, hub, originAllowlist,
+	mux.Handle("/ws", authMiddleware(ws.NewWebSocketHandler(repo, maker, hub, originAllowlist,
 		func(ctx context.Context, conversationID, userID uuid.UUID) (bool, error) {
 			return repo.IsParticipant(ctx, conversationID, userID)
 		},
-	))
+	)))
 
 	// Start the HTTP server
 	server := &http.Server{

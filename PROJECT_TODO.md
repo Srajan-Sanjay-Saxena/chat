@@ -1,17 +1,17 @@
 # Real-Time Chat System — Project TODO
 
 Status: **In Progress**  
-Current Phase: **3 (WebSocket core)**  
-Last Updated: May 19, 2026
+Current Phase: **4 (Messaging system)**  
+Last Updated: May 23, 2026
 
 ---
 
-## Phase 0 — Foundation ✅ COMPLETE
+## Phase 0 — Foundation 🔄 IN PROGRESS
 
 - [x] Task 0.1 — Create Repository (realtime-chat-system)
-- [x] Task 0.2 — Setup Folder Structure
-  - [x] /cmd/server
-  - [x] /internal (partial)
+- [ ] Task 0.2 — Setup Folder Structure
+  - [ ] /cmd/server
+  - [ ] /internal (partial)
   - [x] /db
   - [x] /config
   - [x] /logger
@@ -59,7 +59,7 @@ Last Updated: May 19, 2026
 
 ---
 
-## Phase 2 — Authentication ✅ COMPLETE
+## Phase 2 — Authentication 🔄 IN PROGRESS
 
 - [x] Task 2.1 — Signup API
   - [x] Validate request (non-empty fields)
@@ -81,54 +81,54 @@ Last Updated: May 19, 2026
   - [x] Return 401 Unauthorized on invalid credentials
   - [x] POST /login endpoint registered
 
-- [x] Task 2.3 — JWT Middleware
-  - [x] Create middleware function
+- [ ] Task 2.3 — JWT Middleware
+  - [ ] Create middleware function
   - [x] Parse bearer token from Authorization header
   - [x] Validate JWT signature
   - [x] Handle expired tokens
   - [x] Extract user ID from claims
-  - [x] Inject user ID into request context
-  - [x] Test on protected endpoints
+  - [ ] Inject user ID into request context
+  - [ ] Test on protected endpoints
 
 ---
 
-## Phase 3 — WebSocket Core 🔄 IN PROGRESS
+## Phase 3 — WebSocket Core ✅ COMPLETE
 
-- [ ] Task 3.1 — WebSocket Upgrade Handler
-  - [ ] Upgrade HTTP to WebSocket
-  - [ ] Validate JWT before upgrade
-  - [ ] Map connection to user
-  - [ ] Return user context or error
-  - [ ] Endpoint: /ws
+- [x] Task 3.1 — WebSocket Upgrade Handler
+  - [x] Upgrade HTTP to WebSocket
+  - [x] Validate JWT before upgrade
+  - [x] Map connection to user
+  - [x] Return user context or error
+  - [x] Endpoint: /ws
 
-- [ ] Task 3.2 — Client Struct
-  - [ ] Define Client struct (Conn, Send, UserID)
-  - [ ] Client connection state
-  - [ ] Client cleanup methods
+- [x] Task 3.2 — Client Struct
+  - [x] Define Client struct (Conn, Send, UserID)
+  - [x] Client connection state
+  - [x] Client cleanup methods
 
-- [ ] Task 3.3 — Hub Struct
-  - [ ] Define Hub struct (clients map, register/unregister channels)
-  - [ ] Active clients tracking
-  - [ ] Register/unregister logic
-  - [ ] Broadcast routing
+- [x] Task 3.3 — Hub Struct
+  - [x] Define Hub struct (clients map, register/unregister channels)
+  - [x] Active clients tracking
+  - [x] Register/unregister logic
+  - [x] Broadcast routing
 
-- [ ] Task 3.4 — Read Pump
-  - [ ] Read incoming messages from client
-  - [ ] Parse JSON payload
-  - [ ] Validate message structure
-  - [ ] Push to processing pipeline
-  - [ ] Error handling (disconnect on read error)
+- [x] Task 3.4 — Read Pump
+  - [x] Read incoming messages from client
+  - [x] Parse JSON payload
+  - [x] Validate message structure
+  - [x] Push to processing pipeline
+  - [x] Error handling (disconnect on read error)
 
-- [ ] Task 3.5 — Write Pump
-  - [ ] Write outgoing messages to client
-  - [ ] Implement ping/pong heartbeats
-  - [ ] Handle graceful disconnect
-  - [ ] Close goroutines safely
-  - [ ] **Critical for interview discussion**
+- [x] Task 3.5 — Write Pump
+  - [x] Write outgoing messages to client
+  - [x] Implement ping/pong heartbeats
+  - [x] Handle graceful disconnect
+  - [x] Close goroutines safely
+  - [x] **Critical for interview discussion**
 
 ---
 
-## Phase 4 — Messaging System ⏳ NOT STARTED
+## Phase 4 — Messaging System 🔄 IN PROGRESS
 
 - [x] Task 4.1 — Send Message Flow
   - [x] Client → WebSocket → Hub → Conversation Subscribers → PostgreSQL Save
@@ -136,8 +136,8 @@ Last Updated: May 19, 2026
   - [x] Routing logic
   - [x] Error handling
 
-- [x] Task 4.2 — Private Conversations
-  - [x] Create conversation endpoint
+- [ ] Task 4.2 — Private Conversations
+  - [ ] Create conversation endpoint
   - [x] Add participants to conversation
   - [x] Fetch conversation list for user
   - [x] Validate permissions
@@ -151,7 +151,7 @@ Last Updated: May 19, 2026
 - [ ] Task 4.4 — Message Persistence
   - [ ] Async message insert to DB
   - [ ] Retry logic for failed inserts
-  - [ ] Timestamps accuracy
+  - [x] Timestamps accuracy
   - [ ] Idempotency (duplicate detection)
 
 ---
@@ -252,8 +252,8 @@ Last Updated: May 19, 2026
 
 ### Must Finish (Blocking Interview)
 - [x] JWT auth
-- [ ] WebSocket read/write pumps
-- [ ] Conversation-based message routing
+- [x] WebSocket read/write pumps
+- [x] Conversation-based message routing
 - [ ] Message persistence
 - [ ] Pagination
 - [ ] Minimal deployment readiness
@@ -280,10 +280,10 @@ Last Updated: May 19, 2026
   - [x] Send message through one conversation
   - [x] Broadcast only to participants
 
-- [x] Days 8-10 — Persistence
+- [ ] Days 8-10 — Persistence
   - [x] Save messages to PostgreSQL
   - [x] Load conversation history
-  - [x] Basic pagination for history
+  - [ ] Basic pagination for history
 
 - [ ] Days 11-13 — Basic UI / testing
   - [ ] Minimal chat window
@@ -320,9 +320,10 @@ Last Updated: May 19, 2026
 
 ## Notes
 
-- All Phase 0-1 tasks complete
-- Phase 2 (auth) complete, ready to test
-- Phase 3 (WebSockets) starts next — most critical for interview
+- Phase 1 tasks complete
+- Phase 2 auth endpoints complete; JWT middleware/context injection still pending
+- Phase 3 WebSocket core implemented and running
+- Phase 4 messaging is active focus
 - Redis is deferred until after the single-server MVP works
 - Focus on clean code + architecture explanation over feature count
 - Regularly commit to git with clear messages
@@ -339,5 +340,20 @@ Last Updated: May 19, 2026
 
 ---
 
-Generated: 2026-05-19  
+## Priority Order (Highest to Lowest)
+
+1. Stabilize test suite and migration flow (fix `go test ./...` failures first).
+2. Complete JWT middleware as true middleware (context injection + protected endpoint validation tests).
+3. Wire and expose conversation creation route in server routing.
+4. Finish message persistence hardening (async insert, retry strategy, idempotency guard).
+5. Expose API-level pagination controls (`before`, `limit`) in message history endpoint.
+6. Complete group chat APIs (create group, join/leave semantics, member list endpoint).
+7. Add connection/session cleanup hardening and stale socket cleanup verification.
+8. Add minimal frontend flow for demo (login, connect WS, send/receive, load history).
+9. Add deployment baseline (Dockerfile, compose, env docs, smoke run).
+10. Final polish (README, architecture diagram, demo script).
+
+---
+
+Generated: 2026-05-23  
 Roadmap Reference: PROJECT_ROADMAP.md

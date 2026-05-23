@@ -12,16 +12,27 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/joho/godotenv"
 )
 
 var repo *repository.Repository
+var suiteLockConn *pgxpool.Conn
+
+const suiteLockKey int64 = 842020
+
+func resetTestDatabase(t *testing.T) {
+	t.Helper()
+	if err := helper.ResetSchema(); err != nil {
+		t.Fatalf("failed to reset database schema: %v", err)
+	}
+}
 
 func TestMain(m *testing.M) {
 	// Load .env file
 	godotenv.Load("../.env")
 
-	// Load logger 
+	// Load logger
 	logger.Init()
 
 	// Connect to the database
@@ -32,29 +43,42 @@ func TestMain(m *testing.M) {
 
 	if err := db.DB.Ping(context.Background()); err != nil {
 		panic("Failed to ping database: " + err.Error())
-	}	
-
-	if err := helper.Rollback(); err != nil {
-		panic("Failed to rollback database: " + err.Error())
 	}
-	
-	if err := helper.Migrate(); err != nil {
-		panic("Failed to migrate database: " + err.Error())
+
+	lockConn, err := db.DB.Acquire(context.Background())
+	if err != nil {
+		panic("Failed to acquire test DB lock connection: " + err.Error())
+	}
+	suiteLockConn = lockConn
+	if _, err := suiteLockConn.Exec(context.Background(), `select pg_advisory_lock($1)`, suiteLockKey); err != nil {
+		panic("Failed to acquire test DB advisory lock: " + err.Error())
+	}
+
+	if err := helper.ResetSchema(); err != nil {
+		panic("Failed to reset database schema: " + err.Error())
 	}
 
 	repo = repository.NewRepository(db.DB)
 	// Run tests
 
-	os.Exit(m.Run())
+	exitCode := m.Run()
+	if suiteLockConn != nil {
+		_, _ = suiteLockConn.Exec(context.Background(), `select pg_advisory_unlock($1)`, suiteLockKey)
+		suiteLockConn.Release()
+	}
+	os.Exit(exitCode)
 }
 
 func TestUserRepo(t *testing.T) {
+	resetTestDatabase(t)
+
 	// Create a new user
+	suffix := uuid.NewString()
 	user := &db.User{
 		ID:           uuid.New(),
-		Username:     "testuser",
+		Username:     "testuser_" + suffix,
 		PasswordHash: "password",
-		Email:        "test1@gmail.com",
+		Email:        "test1_" + suffix + "@gmail.com",
 		CreatedAt:    time.Now(),
 	}
 	err := repo.CreateUser(context.Background(), user)
@@ -82,10 +106,12 @@ func TestUserRepo(t *testing.T) {
 }
 
 func TestConversationRepo(t *testing.T) {
+	resetTestDatabase(t)
+
 	// Create a new conversation
 	conversation := &db.Conversation{
 		ID:        uuid.New(),
-		Title:     "Test Conversation",
+		Title:     "Test Conversation " + uuid.NewString(),
 		CreatedAt: time.Now(),
 	}
 	err := repo.CreateConversation(context.Background(), conversation)
@@ -98,7 +124,7 @@ func TestConversationRepo(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to get conversation by ID: %v", err)
 	}
-	
+
 	if fetched.ID != conversation.ID || fetched.Title != conversation.Title {
 		t.Errorf("fetched conversation mismatch: got=%+v want=%+v", fetched, conversation)
 	}
@@ -106,20 +132,23 @@ func TestConversationRepo(t *testing.T) {
 }
 
 func TestFlow(t *testing.T) {
+	resetTestDatabase(t)
+
 	// Creste users
+	userSuffix := uuid.NewString()
 	user1 := &db.User{
 		ID:           uuid.New(),
-		Username:     "testuser1",
+		Username:     "testuser1_" + userSuffix,
 		PasswordHash: "password",
-		Email:        "test2@gmail.com",
+		Email:        "test2_" + userSuffix + "@gmail.com",
 		CreatedAt:    time.Now(),
 	}
 
 	user2 := &db.User{
 		ID:           uuid.New(),
-		Username:     "testuser2",
+		Username:     "testuser2_" + userSuffix,
 		PasswordHash: "password",
-		Email:        "test3@gmail.com",
+		Email:        "test3_" + userSuffix + "@gmail.com",
 		CreatedAt:    time.Now(),
 	}
 
@@ -135,7 +164,7 @@ func TestFlow(t *testing.T) {
 	// Create a conversation
 	conversation := &db.Conversation{
 		ID:        uuid.New(),
-		Title:     "Test Conversation",
+		Title:     "Test Conversation " + uuid.NewString(),
 		CreatedAt: time.Now(),
 	}
 	err = repo.CreateConversation(context.Background(), conversation)
@@ -147,7 +176,7 @@ func TestFlow(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to add participant user1: %v", err)
 	}
-	
+
 	err = repo.AddParticipant(context.Background(), conversation.ID, user2.ID)
 	if err != nil {
 		t.Fatalf("Failed to add participant user2: %v", err)
@@ -186,12 +215,15 @@ func TestFlow(t *testing.T) {
 }
 
 func TestMessagePaginationCursor(t *testing.T) {
+	resetTestDatabase(t)
+
 	// Setup: create user and conversation
+	suffix := uuid.NewString()
 	user := &db.User{
 		ID:           uuid.New(),
-		Username:     "pag_user",
+		Username:     "pag_user_" + suffix,
 		PasswordHash: "pwd",
-		Email:        "pag_user@example.com",
+		Email:        "pag_user_" + suffix + "@example.com",
 		CreatedAt:    time.Now(),
 	}
 	if err := repo.CreateUser(context.Background(), user); err != nil {
@@ -200,7 +232,7 @@ func TestMessagePaginationCursor(t *testing.T) {
 
 	conversation := &db.Conversation{
 		ID:        uuid.New(),
-		Title:     "pagination convo",
+		Title:     "pagination convo " + uuid.NewString(),
 		CreatedAt: time.Now(),
 	}
 	if err := repo.CreateConversation(context.Background(), conversation); err != nil {

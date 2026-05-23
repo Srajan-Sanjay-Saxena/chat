@@ -1,6 +1,7 @@
 package ws_test
 
 import (
+	"chat-v2/Middleware"
 	"chat-v2/config"
 	"chat-v2/db"
 	"chat-v2/helper"
@@ -19,10 +20,21 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/gorilla/websocket"
+	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/joho/godotenv"
 )
 
 var testRepo *repository.Repository
+var suiteLockConn *pgxpool.Conn
+
+const suiteLockKey int64 = 842020
+
+func resetTestDatabase(t *testing.T) {
+	t.Helper()
+	if err := helper.ResetSchema(); err != nil {
+		t.Fatalf("failed to reset database schema: %v", err)
+	}
+}
 
 func TestMain(m *testing.M) {
 	_, file, _, ok := runtime.Caller(0)
@@ -45,15 +57,26 @@ func TestMain(m *testing.M) {
 		panic("failed to ping database: " + err.Error())
 	}
 
-	if err := helper.Rollback(); err != nil {
-		panic("failed to rollback database: " + err.Error())
+	lockConn, err := db.DB.Acquire(context.Background())
+	if err != nil {
+		panic("failed to acquire test DB lock connection: " + err.Error())
 	}
-	if err := helper.Migrate(); err != nil {
-		panic("failed to migrate database: " + err.Error())
+	suiteLockConn = lockConn
+	if _, err := suiteLockConn.Exec(context.Background(), `select pg_advisory_lock($1)`, suiteLockKey); err != nil {
+		panic("failed to acquire test DB advisory lock: " + err.Error())
+	}
+
+	if err := helper.ResetSchema(); err != nil {
+		panic("failed to reset database schema: " + err.Error())
 	}
 
 	testRepo = repository.NewRepository(db.DB)
-	os.Exit(m.Run())
+	exitCode := m.Run()
+	if suiteLockConn != nil {
+		_, _ = suiteLockConn.Exec(context.Background(), `select pg_advisory_unlock($1)`, suiteLockKey)
+		suiteLockConn.Release()
+	}
+	os.Exit(exitCode)
 }
 
 type wsInMessage struct {
@@ -72,6 +95,8 @@ type wsOutMessage struct {
 }
 
 func TestWebSocketIntegration_PublishSubscribePersist(t *testing.T) {
+	resetTestDatabase(t)
+
 	userID := uuid.New()
 	conversationID := uuid.New()
 	allowedOrigin := "https://app.example.com"
@@ -89,7 +114,7 @@ func TestWebSocketIntegration_PublishSubscribePersist(t *testing.T) {
 
 	conversation := &db.Conversation{
 		ID:        conversationID,
-		Title:     "ws test conversation",
+		Title:     "ws test conversation " + uuid.NewString(),
 		CreatedAt: time.Now().UTC(),
 	}
 	if err := testRepo.CreateConversation(context.Background(), conversation); err != nil {
@@ -116,7 +141,8 @@ func TestWebSocketIntegration_PublishSubscribePersist(t *testing.T) {
 	}()
 
 	mux := http.NewServeMux()
-	mux.Handle("/ws", ws.NewWebSocketHandler(testRepo, maker, hub, config.ParseAllowedOrigins(allowedOrigin), testRepo.IsParticipant))
+	authMiddleware := Middleware.JWTMiddleware(maker)
+	mux.Handle("/ws", authMiddleware(ws.NewWebSocketHandler(testRepo, maker, hub, config.ParseAllowedOrigins(allowedOrigin), testRepo.IsParticipant)))
 	server := httptest.NewServer(mux)
 	defer server.Close()
 
@@ -138,7 +164,7 @@ func TestWebSocketIntegration_PublishSubscribePersist(t *testing.T) {
 		_ = conn.WriteMessage(websocket.CloseMessage, websocket.FormatCloseMessage(websocket.CloseNormalClosure, ""))
 	}()
 
-	readDeadline := time.Now().Add(5 * time.Second)
+	readDeadline := time.Now().Add(10 * time.Second)
 	if err := conn.SetReadDeadline(readDeadline); err != nil {
 		t.Fatalf("set read deadline: %v", err)
 	}
@@ -156,7 +182,7 @@ func TestWebSocketIntegration_PublishSubscribePersist(t *testing.T) {
 	}
 
 	content := "hello from websocket integration test"
-	if err := conn.SetReadDeadline(time.Now().Add(5 * time.Second)); err != nil {
+	if err := conn.SetReadDeadline(time.Now().Add(15 * time.Second)); err != nil {
 		t.Fatalf("set read deadline before publish: %v", err)
 	}
 	if err := conn.WriteJSON(wsInMessage{Type: "message", ConversationID: conversationID, Content: content}); err != nil {

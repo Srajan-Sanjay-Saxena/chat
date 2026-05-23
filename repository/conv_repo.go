@@ -71,8 +71,23 @@ func (r *Repository) CreateConversationWithParticipants(ctx context.Context, tit
 		CreatedAt: time.Now(),
 	}
 
-	if err := r.CreateConversation(ctx, conversation); err != nil {
+	query := `
+		insert into conversations (id, title, created_at)
+		values ($1, $2, $3)
+		returning id
+	`
+	err = tx.QueryRow(ctx, query, conversation.ID, conversation.Title, conversation.CreatedAt).Scan(&conversation.ID)
+	if err != nil {
 		return err
 	}
+
+	// Insert participants
+	for _, userID := range participantIDs {
+		_, err := tx.Exec(ctx, `insert into conversation_participants (conversation_id, user_id) values ($1, $2)`, conversation.ID, userID)
+		if err != nil {
+			return err
+		}
+	}
+	
 	return nil
 }

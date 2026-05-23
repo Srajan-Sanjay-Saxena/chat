@@ -1,143 +1,103 @@
 package handler
 
 import (
-	"chat-v2/logger"
-	"net/http"
-	"chat-v2/repository"
-	"github.com/google/uuid"
 	"chat-v2/helper"
+	"chat-v2/logger"
+	"chat-v2/repository"
 	"encoding/json"
+	"github.com/google/uuid"
+	"net/http"
 	"strings"
 )
 
 // Small Info *.com/conversation/join?conversation_id=123e4567-e89b-12d3-a456-426614174000 for joining a conversation
 // Small Info *.com/conversation/leave?conversation_id=123e4567-e89b-12d3-a456-426614174000 for leaving a conversation
 
-func ConversationHandler(repo *repository.Repository, maker *helper.JWTMaker) http.Handler {
+func writeJSONError(w http.ResponseWriter, statusCode int, message string) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(statusCode)
+	_ = json.NewEncoder(w).Encode(map[string]string{"error": message})
+}
+
+func ConversationJoinHandler(repo *repository.Repository, maker *helper.JWTMaker) http.Handler {
 	if repo == nil {
 		logger.Log.Error("ConversationJoinHandler initialization failed: repository is nil")
 		panic("repository cannot be nil")
 	}
 
+	return conversationMembershipHandler(repo, maker, "join")
+}
+
+func ConversationLeaveHandler(repo *repository.Repository, maker *helper.JWTMaker) http.Handler {
+	if repo == nil {
+		logger.Log.Error("ConversationLeaveHandler initialization failed: repository is nil")
+		panic("repository cannot be nil")
+	}
+
+	return conversationMembershipHandler(repo, maker, "leave")
+}
+
+func conversationMembershipHandler(repo *repository.Repository, maker *helper.JWTMaker, operation string) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		// Method check
 		if r.Method != http.MethodPost {
-			logger.Log.Error("Invalid method for ConversationJoinHandler", "method", r.Method)
-			w.Header().Set("Content-Type", "application/json")
-			w.WriteHeader(http.StatusMethodNotAllowed)
-			json.NewEncoder(w).Encode(map[string]string{
-				"error": "Method not allowed",
-			})
+			logger.Log.Error("Invalid method for ConversationMembershipHandler", "method", r.Method, "operation", operation)
+			writeJSONError(w, http.StatusMethodNotAllowed, "Method not allowed")
 			return
 		}
 
-		// call JWTVerifier from helper to verify token and extract user ID
 		userID, err := helper.JWTVerifier(r, maker)
 		if err != nil {
-			logger.Log.Error("JWT verification failed in ConversationJoinHandler", "error", err)
-			w.Header().Set("Content-Type", "application/json")
-			w.WriteHeader(http.StatusUnauthorized)
-			json.NewEncoder(w).Encode(map[string]string{
-				"error": "Unauthorized: " + err.Error(),
-			})
-			return
-		}
-		// Extract operation (join/leave) from URL path
-		pathParts := strings.Split(strings.Trim(r.URL.Path, "/"), "/")
-		if len(pathParts) < 2 {
-			logger.Log.Error("Invalid URL path for ConversationJoinHandler", "path", r.URL.Path)
-			w.Header().Set("Content-Type", "application/json")
-			w.WriteHeader(http.StatusBadRequest)
-			json.NewEncoder(w).Encode(map[string]string{
-				"error": "Invalid URL path",
-			})
+			logger.Log.Error("JWT verification failed in ConversationMembershipHandler", "error", err, "operation", operation)
+			writeJSONError(w, http.StatusUnauthorized, "Unauthorized: "+err.Error())
 			return
 		}
 
-		operation := pathParts[len(pathParts)-1]
-		if operation != "join" && operation != "leave" {
-			logger.Log.Error("Invalid operation in URL path for ConversationJoinHandler", "operation", operation)
-			w.Header().Set("Content-Type", "application/json")
-			w.WriteHeader(http.StatusBadRequest)
-			json.NewEncoder(w).Encode(map[string]string{
-				"error": "Invalid operation in URL path",
-			})
-			return
-		}
-
-		// Extract conversation ID from URL query parameters
 		conversationIDStr := r.URL.Query().Get("conversation_id")
 		if conversationIDStr == "" {
-			logger.Log.Error("Missing conversation_id query parameter in ConversationJoinHandler")
-			w.Header().Set("Content-Type", "application/json")
-			w.WriteHeader(http.StatusBadRequest)
-			json.NewEncoder(w).Encode(map[string]string{
-				"error": "Missing conversation_id query parameter",
-			})
+			logger.Log.Error("Missing conversation_id query parameter in ConversationMembershipHandler", "operation", operation)
+			writeJSONError(w, http.StatusBadRequest, "Missing conversation_id query parameter")
 			return
 		}
-		conversationID, err := uuid.Parse(conversationIDStr)
 
+		conversationID, err := uuid.Parse(conversationIDStr)
 		if err != nil {
-			logger.Log.Error("Invalid conversation_id format in ConversationJoinHandler", "conversation_id", conversationIDStr, "error", err)
-			w.Header().Set("Content-Type", "application/json")
-			w.WriteHeader(http.StatusBadRequest)
-			json.NewEncoder(w).Encode(map[string]string{
-				"error": "Invalid conversation_id format",
-			})
+			logger.Log.Error("Invalid conversation_id format in ConversationMembershipHandler", "conversation_id", conversationIDStr, "error", err, "operation", operation)
+			writeJSONError(w, http.StatusBadRequest, "Invalid conversation_id format")
 			return
 		}
 
 		if operation == "join" {
-			// Add user to conversation participants
 			err = repo.AddParticipant(r.Context(), conversationID, userID)
 			if err != nil {
 				logger.Log.Error("Failed to add participant to conversation in ConversationJoinHandler", "conversation_id", conversationID, "user_id", userID, "error", err)
-				w.Header().Set("Content-Type", "application/json")
-				w.WriteHeader(http.StatusInternalServerError)
-				json.NewEncoder(w).Encode(map[string]string{
-					"error": "Failed to join conversation",
-				})
+				writeJSONError(w, http.StatusInternalServerError, "Failed to join conversation")
 				return
 			}
 			logger.Log.Info("User joined conversation", "conversation_id", conversationID, "user_id", userID)
 			w.Header().Set("Content-Type", "application/json")
-			json.NewEncoder(w).Encode(map[string]string{
-				"message": "Successfully joined conversation",
-			})
+			_ = json.NewEncoder(w).Encode(map[string]string{"message": "Successfully joined conversation"})
 			return
-		} else if operation == "leave" {
-			// Remove user from conversation participants
-			err = repo.RemoveParticipant(r.Context(), conversationID, userID)
-			if err != nil {
-				logger.Log.Error("Failed to remove participant from conversation in ConversationJoinHandler", "conversation_id", conversationID, "user_id", userID, "error", err)
-				w.Header().Set("Content-Type", "application/json")
-				w.WriteHeader(http.StatusInternalServerError)
-				json.NewEncoder(w).Encode(map[string]string{
-					"error": "Failed to leave conversation",
-				})
-				return
-			}
-			logger.Log.Info("User left conversation", "conversation_id", conversationID, "user_id", userID)
-			w.Header().Set("Content-Type", "application/json")
-			json.NewEncoder(w).Encode(map[string]string{
-				"message": "Successfully left conversation",
-			})
 		}
+
+		err = repo.RemoveParticipant(r.Context(), conversationID, userID)
+		if err != nil {
+			logger.Log.Error("Failed to remove participant from conversation in ConversationLeaveHandler", "conversation_id", conversationID, "user_id", userID, "error", err)
+			writeJSONError(w, http.StatusInternalServerError, "Failed to leave conversation")
+			return
+		}
+
+		logger.Log.Info("User left conversation", "conversation_id", conversationID, "user_id", userID)
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]string{"message": "Successfully left conversation"})
 	})
 }
-
 
 func ConvListHandler(repo *repository.Repository, maker *helper.JWTMaker) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// Method check
 		if r.Method != http.MethodGet {
 			logger.Log.Error("Invalid method for convListHandler", "method", r.Method)
-			w.Header().Set("Content-Type", "application/json")
-			w.WriteHeader(http.StatusMethodNotAllowed)
-			json.NewEncoder(w).Encode(map[string]string{
-				"error": "Method not allowed",
-			})
+			writeJSONError(w, http.StatusMethodNotAllowed, "Method not allowed")
 			return
 		}
 
@@ -175,14 +135,10 @@ func ConvListHandler(repo *repository.Repository, maker *helper.JWTMaker) http.H
 
 func ConvCreateHandler(repo *repository.Repository, maker *helper.JWTMaker) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		// Method check	
+		// Method check
 		if r.Method != http.MethodPost {
 			logger.Log.Error("Invalid method for convCreateHandler", "method", r.Method)
-			w.Header().Set("Content-Type", "application/json")
-			w.WriteHeader(http.StatusMethodNotAllowed)
-			json.NewEncoder(w).Encode(map[string]string{
-				"error": "Method not allowed",
-			})
+			writeJSONError(w, http.StatusMethodNotAllowed, "Method not allowed")
 			return
 		}
 
@@ -197,10 +153,10 @@ func ConvCreateHandler(repo *repository.Repository, maker *helper.JWTMaker) http
 			})
 			return
 		}
-		
+
 		// Parse request body for conversation details (e.g., name, participant IDs)
 		var req struct {
-			Title          string   `json:"title"`
+			Title          string      `json:"title"`
 			ParticipantIDs []uuid.UUID `json:"participant_ids"`
 		}
 
@@ -254,5 +210,5 @@ func ConvCreateHandler(repo *repository.Repository, maker *helper.JWTMaker) http
 		json.NewEncoder(w).Encode(map[string]string{
 			"message": "Conversation created successfully",
 		})
-	})	
+	})
 }

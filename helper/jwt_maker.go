@@ -1,13 +1,14 @@
 package helper
 
 import (
-	"fmt"
-	"time"
+	"context"
 	"errors"
+	"fmt"
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/google/uuid"
 	"net/http"
 	"strings"
+	"time"
 )
 
 type JWTMaker struct {
@@ -28,7 +29,7 @@ type UserClaims struct {
 
 func (maker *JWTMaker) CreateToken(userID uuid.UUID, duration time.Duration) (string, error) {
 	// Create JWT claims with user ID and expiration time
-	if(userID == uuid.Nil) {
+	if userID == uuid.Nil {
 		return "", fmt.Errorf("invalid user ID: cannot be nil")
 	}
 
@@ -39,8 +40,8 @@ func (maker *JWTMaker) CreateToken(userID uuid.UUID, duration time.Duration) (st
 	now := time.Now()
 	claims := UserClaims{
 		RegisteredClaims: jwt.RegisteredClaims{
-			Subject: userID.String(),
-			Issuer :  "chat-v2",
+			Subject:   userID.String(),
+			Issuer:    "chat-v2",
 			IssuedAt:  jwt.NewNumericDate(now),
 			ExpiresAt: jwt.NewNumericDate(now.Add(duration)),
 		},
@@ -86,7 +87,7 @@ func (maker *JWTMaker) VerifyToken(tokenStr string) (*UserClaims, error) {
 	if claims.ID == uuid.Nil {
 		return nil, fmt.Errorf("invalid token claims: user ID cannot be nil: %w", jwt.ErrTokenInvalidClaims)
 	}
-	
+
 	subject, err := claims.GetSubject()
 	if err != nil {
 		return nil, fmt.Errorf("failed to get subject from token claims: %w", err)
@@ -96,36 +97,84 @@ func (maker *JWTMaker) VerifyToken(tokenStr string) (*UserClaims, error) {
 	}
 
 	// Issuer validation
-	issuer , err := token.Claims.GetIssuer()
+	issuer, err := token.Claims.GetIssuer()
 	if err != nil {
 		return nil, fmt.Errorf("failed to get issuer from token claims: %w", err)
 	}
 	if issuer != "chat-v2" {
 		return nil, fmt.Errorf("invalid token issuer: expected 'chat-v2', got '%s': %w", issuer, jwt.ErrTokenInvalidClaims)
 	}
-	
+
 	return claims, nil
 }
 
-
-func JWTVerifier(r *http.Request, maker *JWTMaker) (uuid.UUID, error) {
-	// Get the JWT token from the Authorization header
+func ExtractBearerToken(r *http.Request) (string, error) {
+	// Extract the Authorization header from the HTTP request
 	authHeader := r.Header.Get("Authorization")
 	if authHeader == "" {
-		return uuid.Nil, fmt.Errorf("authorization header is missing")
+		return "", fmt.Errorf("authorization header is missing")
 	}
 
-	// Expected format: "Bearer <token
-	const prefix = "Bearer "
-	if !strings.HasPrefix(authHeader, prefix) {
-		return uuid.Nil, fmt.Errorf("invalid authorization header format: expected 'Bearer <token>'")
+	// Check if the Authorization header is in the correct format (Bearer token)
+	parts := strings.SplitN(authHeader, " ", 2)
+	if len(parts) != 2 || !strings.EqualFold(parts[0], "Bearer") {
+		return "", fmt.Errorf("authorization header format must be 'Bearer {token}'")
 	}
-	jwtToken := strings.TrimPrefix(authHeader, prefix)
 
-	// Verify the JWT token
-	claims, err := maker.VerifyToken(jwtToken)
+	// check if token is empty
+	if strings.TrimSpace(parts[1]) == "" {
+		return "", fmt.Errorf("token cannot be empty")
+	}
+
+	return parts[1], nil
+}
+
+func JWTVerifier(r *http.Request, maker *JWTMaker) (uuid.UUID, error) {
+	if r == nil {
+		return uuid.Nil, fmt.Errorf("request cannot be nil")
+	}
+
+	if userID, ok := GetUserFromContext(r.Context()); ok {
+		return userID, nil
+	}
+
+	if maker == nil {
+		return uuid.Nil, fmt.Errorf("jwt maker cannot be nil")
+	}
+
+	token, err := ExtractBearerToken(r)
 	if err != nil {
-		return uuid.Nil, fmt.Errorf("invalid token: %w", err)
+		return uuid.Nil, err
 	}
+
+	claims, err := maker.VerifyToken(token)
+	if err != nil {
+		return uuid.Nil, err
+	}
+
 	return claims.ID, nil
+}
+
+type contextKey string
+
+const userContextKey = contextKey("userID")
+
+func SetUserContext(ctx context.Context, userID uuid.UUID) context.Context {
+	// set user ID in context for downstream handlers
+	return context.WithValue(ctx, userContextKey, userID)
+}
+
+func GetUserFromContext(ctx context.Context) (uuid.UUID, bool) {
+	// retrieve user ID from context
+	if ctx == nil {
+		return uuid.Nil, false
+	}
+
+	userID, ok := ctx.Value(userContextKey).(uuid.UUID)
+	if ok {
+		return userID, true
+	}
+
+	userID, ok = ctx.Value("userID").(uuid.UUID)
+	return userID, ok
 }
