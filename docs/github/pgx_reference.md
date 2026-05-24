@@ -16,4 +16,3 @@ Paging example
 
 Tools
 - Consider `scany/pgxscan` or `sqlx` for mapping rows to structs.
-

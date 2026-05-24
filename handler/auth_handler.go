@@ -3,13 +3,13 @@ package handler
 import (
 	"chat-v2/db"
 	"chat-v2/helper"
+	"chat-v2/logger"
 	"chat-v2/repository"
 	"encoding/json"
+	"errors"
+	"github.com/google/uuid"
 	"net/http"
 	"time"
-	"chat-v2/logger"
-	"github.com/google/uuid"
-	"errors"
 )
 
 type SignUpRequest struct {
@@ -34,11 +34,7 @@ func SignUpHandler(repo *repository.Repository) http.Handler {
 		// Method check
 		if r.Method != http.MethodPost {
 			logger.Log.Error("Invalid method for SignUpHandler", "method", r.Method)
-			w.Header().Set("Content-Type", "application/json")
-			w.WriteHeader(http.StatusMethodNotAllowed)
-			json.NewEncoder(w).Encode(map[string]string{
-				"error": "Method not allowed",
-			})
+			writeJSONError(w, http.StatusMethodNotAllowed, "Method not allowed")
 			return
 		}
 
@@ -46,52 +42,32 @@ func SignUpHandler(repo *repository.Repository) http.Handler {
 		var req SignUpRequest
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 			logger.Log.Error("Failed to decode SignUpRequest", "error", err)
-			w.Header().Set("Content-Type", "application/json")
-			w.WriteHeader(http.StatusBadRequest)
-			json.NewEncoder(w).Encode(map[string]string{
-				"error": "Invalid request payload",
-			})
+			writeJSONError(w, http.StatusBadRequest, "Invalid request payload")
 			return
 		}
 
 		// Validate input
 		if req.Username == "" || req.Password == "" || req.Email == "" {
 			logger.Log.Error("Missing fields in SignUpRequest", "username", req.Username, "email", req.Email)
-			w.Header().Set("Content-Type", "application/json")
-			w.WriteHeader(http.StatusBadRequest)
-			json.NewEncoder(w).Encode(map[string]string{
-				"error": "Username, password and email are required",
-			})
+			writeJSONError(w, http.StatusBadRequest, "Username, password and email are required")
 			return
 		}
 
 		if helper.ValidateEmail(req.Email) == false {
 			logger.Log.Error("Invalid email format in SignUpRequest", "email", req.Email)
-			w.Header().Set("Content-Type", "application/json")
-			w.WriteHeader(http.StatusBadRequest)
-			json.NewEncoder(w).Encode(map[string]string{
-				"error": "Invalid email format",
-			})
+			writeJSONError(w, http.StatusBadRequest, "Invalid email format")
 			return
 		}
 
 		if helper.ValidatePassword(req.Password) == false {
 			logger.Log.Error("Weak password in SignUpRequest", "username", req.Username)
-			w.Header().Set("Content-Type", "application/json")
-			w.WriteHeader(http.StatusBadRequest)
-			json.NewEncoder(w).Encode(map[string]string{
-				"error": "Password does not meet strength requirements",
-			})
+			writeJSONError(w, http.StatusBadRequest, "Password does not meet strength requirements")
 			return
 		}
 
 		if helper.ValidateUsername(req.Username) == false {
 			logger.Log.Error("Invalid username in SignUpRequest", "username", req.Username)
-			w.Header().Set("Content-Type", "application/json")
-			w.WriteHeader(http.StatusBadRequest)
-			json.NewEncoder(w).Encode(map[string]string{
-				"error": "Username does not meet requirements",
-			})
+			writeJSONError(w, http.StatusBadRequest, "Username does not meet requirements")
 			return
 		}
 
@@ -99,44 +75,32 @@ func SignUpHandler(repo *repository.Repository) http.Handler {
 		hashedPassword, err := helper.HashPassword(req.Password)
 		if err != nil {
 			logger.Log.Error("Failed to hash password for user", "username", req.Username, "error", err)
-			w.Header().Set("Content-Type", "application/json")
-			w.WriteHeader(http.StatusInternalServerError)
-			json.NewEncoder(w).Encode(map[string]string{
-				"error": "Failed to create user",
-			})
+			writeJSONError(w, http.StatusInternalServerError, "Failed to create user")
 			return
 		}
 
 		user := &db.User{
-			ID: uuid.New(),
-			Username: req.Username,
+			ID:           uuid.New(),
+			Username:     req.Username,
 			PasswordHash: hashedPassword,
-			Email: req.Email,
-			CreatedAt: time.Now(),
+			Email:        req.Email,
+			CreatedAt:    time.Now(),
 		}
 
 		// Create user
 		if err := repo.CreateUser(r.Context(), user); err != nil {
-			// Check if the error is due to duplicate username 
-			
+			// Check if the error is due to duplicate username
+
 			if errors.Is(err, repository.ErrUserExists) {
 				logger.Log.Error("Username already exists", "username", req.Username)
-				w.Header().Set("Content-Type", "application/json")
-				w.WriteHeader(http.StatusConflict)
-				json.NewEncoder(w).Encode(map[string]string{
-					"error": "Username or email already exists",
-				})
+				writeJSONError(w, http.StatusConflict, "Username or email already exists")
 				return
 			}
 
 			// Log the error and return a generic error message
 
 			logger.Log.Error("Failed to create user", "username", req.Username, "error", err)
-			w.Header().Set("Content-Type", "application/json")
-			w.WriteHeader(http.StatusInternalServerError)
-			json.NewEncoder(w).Encode(map[string]string{
-				"error": "Failed to create user",
-			})
+			writeJSONError(w, http.StatusInternalServerError, "Failed to create user")
 			return
 		}
 
@@ -144,7 +108,7 @@ func SignUpHandler(repo *repository.Repository) http.Handler {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusCreated)
 		json.NewEncoder(w).Encode(map[string]string{
-			"status": "User created successfully",
+			"status":  "User created successfully",
 			"user_id": user.ID.String(),
 		})
 	})
@@ -166,11 +130,7 @@ func LoginHandler(repo *repository.Repository, maker *helper.JWTMaker) http.Hand
 		// Method check
 		if r.Method != http.MethodPost {
 			logger.Log.Error("Invalid method for LoginHandler", "method", r.Method)
-			w.Header().Set("Content-Type", "application/json")
-			w.WriteHeader(http.StatusMethodNotAllowed)
-			json.NewEncoder(w).Encode(map[string]string{
-				"error": "Method not allowed",
-			})
+			writeJSONError(w, http.StatusMethodNotAllowed, "Method not allowed")
 			return
 		}
 
@@ -178,21 +138,13 @@ func LoginHandler(repo *repository.Repository, maker *helper.JWTMaker) http.Hand
 		var req LoginRequest
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 			logger.Log.Error("Failed to decode LoginRequest", "error", err)
-			w.Header().Set("Content-Type", "application/json")
-			w.WriteHeader(http.StatusBadRequest)
-			json.NewEncoder(w).Encode(map[string]string{
-				"error": "Invalid request payload",
-			})
+			writeJSONError(w, http.StatusBadRequest, "Invalid request payload")
 			return
 		}
 
-		if req.Username == ""  || req.Password == "" {
+		if req.Username == "" || req.Password == "" {
 			logger.Log.Error("Missing fields in LoginRequest", "username", req.Username)
-			w.Header().Set("Content-Type", "application/json")
-			w.WriteHeader(http.StatusBadRequest)
-			json.NewEncoder(w).Encode(map[string]string{
-				"error": "Username and password are required",
-			})
+			writeJSONError(w, http.StatusBadRequest, "Username and password are required")
 			return
 		}
 
@@ -200,34 +152,22 @@ func LoginHandler(repo *repository.Repository, maker *helper.JWTMaker) http.Hand
 		user, err := repo.GetUserByUsername(r.Context(), req.Username)
 		if err != nil || user == nil {
 			logger.Log.Error("User not found", "username", req.Username, "error", err)
-			w.Header().Set("Content-Type", "application/json")
-			w.WriteHeader(http.StatusUnauthorized)
-			json.NewEncoder(w).Encode(map[string]string{
-				"error": "Invalid username or password",
-			})
+			writeJSONError(w, http.StatusUnauthorized, "Invalid username or password")
 			return
 		}
 
 		// compare the hashed password
 		if !helper.CheckPasswordHash(req.Password, user.PasswordHash) {
 			logger.Log.Error("Invalid password for username", "username", req.Username)
-			w.Header().Set("Content-Type", "application/json")
-			w.WriteHeader(http.StatusUnauthorized)
-			json.NewEncoder(w).Encode(map[string]string{
-				"error": "Invalid username or password",
-			})
+			writeJSONError(w, http.StatusUnauthorized, "Invalid username or password")
 			return
 		}
 
 		now := time.Now()
-		token , err := maker.CreateToken(user.ID, time.Hour * 24)
+		token, err := maker.CreateToken(user.ID, time.Hour*24)
 		if err != nil {
 			logger.Log.Error("Failed to create token for user", "username", req.Username, "error", err)
-			w.Header().Set("Content-Type", "application/json")
-			w.WriteHeader(http.StatusInternalServerError)
-			json.NewEncoder(w).Encode(map[string]string{
-				"error": "Failed to create token",
-			})
+			writeJSONError(w, http.StatusInternalServerError, "Failed to create token")
 			return
 		}
 
@@ -235,11 +175,10 @@ func LoginHandler(repo *repository.Repository, maker *helper.JWTMaker) http.Hand
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
 		json.NewEncoder(w).Encode(map[string]string{
-			"status": "Login successful",
-			"user_id": user.ID.String(),
-			"token": token,
-			"expires_at" : now.Add(time.Hour * 24).Format(time.RFC3339),
+			"status":     "Login successful",
+			"user_id":    user.ID.String(),
+			"token":      token,
+			"expires_at": now.Add(time.Hour * 24).Format(time.RFC3339),
 		})
 	})
 }
-

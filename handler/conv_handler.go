@@ -5,19 +5,11 @@ import (
 	"chat-v2/logger"
 	"chat-v2/repository"
 	"encoding/json"
+	"fmt"
 	"github.com/google/uuid"
 	"net/http"
 	"strings"
 )
-
-// Small Info *.com/conversation/join?conversation_id=123e4567-e89b-12d3-a456-426614174000 for joining a conversation
-// Small Info *.com/conversation/leave?conversation_id=123e4567-e89b-12d3-a456-426614174000 for leaving a conversation
-
-func writeJSONError(w http.ResponseWriter, statusCode int, message string) {
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(statusCode)
-	_ = json.NewEncoder(w).Encode(map[string]string{"error": message})
-}
 
 func ConversationJoinHandler(repo *repository.Repository, maker *helper.JWTMaker) http.Handler {
 	if repo == nil {
@@ -52,17 +44,10 @@ func conversationMembershipHandler(repo *repository.Repository, maker *helper.JW
 			return
 		}
 
-		conversationIDStr := r.URL.Query().Get("conversation_id")
-		if conversationIDStr == "" {
-			logger.Log.Error("Missing conversation_id query parameter in ConversationMembershipHandler", "operation", operation)
-			writeJSONError(w, http.StatusBadRequest, "Missing conversation_id query parameter")
-			return
-		}
-
-		conversationID, err := uuid.Parse(conversationIDStr)
+		conversationID, err := ConvIdExtract(r)
 		if err != nil {
-			logger.Log.Error("Invalid conversation_id format in ConversationMembershipHandler", "conversation_id", conversationIDStr, "error", err, "operation", operation)
-			writeJSONError(w, http.StatusBadRequest, "Invalid conversation_id format")
+			logger.Log.Error("Failed to extract conversation ID in ConversationMembershipHandler", "error", err, "operation", operation)
+			writeJSONError(w, http.StatusBadRequest, err.Error())
 			return
 		}
 
@@ -88,6 +73,7 @@ func conversationMembershipHandler(repo *repository.Repository, maker *helper.JW
 
 		logger.Log.Info("User left conversation", "conversation_id", conversationID, "user_id", userID)
 		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
 		_ = json.NewEncoder(w).Encode(map[string]string{"message": "Successfully left conversation"})
 	})
 }
@@ -105,11 +91,7 @@ func ConvListHandler(repo *repository.Repository, maker *helper.JWTMaker) http.H
 		userID, err := helper.JWTVerifier(r, maker)
 		if err != nil {
 			logger.Log.Error("JWT verification failed in convListHandler", "error", err)
-			w.Header().Set("Content-Type", "application/json")
-			w.WriteHeader(http.StatusUnauthorized)
-			json.NewEncoder(w).Encode(map[string]string{
-				"error": "Unauthorized: " + err.Error(),
-			})
+			writeJSONError(w, http.StatusUnauthorized, "Unauthorized: "+err.Error())
 			return
 		}
 
@@ -117,16 +99,13 @@ func ConvListHandler(repo *repository.Repository, maker *helper.JWTMaker) http.H
 		conversations, err := repo.GetConversationsByUserID(r.Context(), userID)
 		if err != nil {
 			logger.Log.Error("Failed to fetch conversations for user in convListHandler", "user_id", userID, "error", err)
-			w.Header().Set("Content-Type", "application/json")
-			w.WriteHeader(http.StatusInternalServerError)
-			json.NewEncoder(w).Encode(map[string]string{
-				"error": "Failed to fetch conversations",
-			})
+			writeJSONError(w, http.StatusInternalServerError, "Failed to fetch conversations")
 			return
 		}
 
 		// Return conversations as JSON response
 		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
 		json.NewEncoder(w).Encode(map[string]interface{}{
 			"conversations": conversations,
 		})
@@ -146,11 +125,7 @@ func ConvCreateHandler(repo *repository.Repository, maker *helper.JWTMaker) http
 		userID, err := helper.JWTVerifier(r, maker)
 		if err != nil {
 			logger.Log.Error("JWT verification failed in convCreateHandler", "error", err)
-			w.Header().Set("Content-Type", "application/json")
-			w.WriteHeader(http.StatusUnauthorized)
-			json.NewEncoder(w).Encode(map[string]string{
-				"error": "Unauthorized: " + err.Error(),
-			})
+			writeJSONError(w, http.StatusUnauthorized, "Unauthorized: "+err.Error())
 			return
 		}
 
@@ -162,22 +137,14 @@ func ConvCreateHandler(repo *repository.Repository, maker *helper.JWTMaker) http
 
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 			logger.Log.Error("Failed to decode request body in convCreateHandler", "error", err)
-			w.Header().Set("Content-Type", "application/json")
-			w.WriteHeader(http.StatusBadRequest)
-			json.NewEncoder(w).Encode(map[string]string{
-				"error": "Invalid request body",
-			})
+			writeJSONError(w, http.StatusBadRequest, "Invalid request body: "+err.Error())
 			return
 		}
 
 		// title should not be empty
 		if strings.TrimSpace(req.Title) == "" {
 			logger.Log.Error("Conversation title cannot be empty in convCreateHandler", "user_id", userID)
-			w.Header().Set("Content-Type", "application/json")
-			w.WriteHeader(http.StatusBadRequest)
-			json.NewEncoder(w).Encode(map[string]string{
-				"error": "Conversation title cannot be empty",
-			})
+			writeJSONError(w, http.StatusBadRequest, "Conversation title cannot be empty")
 			return
 		}
 
@@ -197,18 +164,91 @@ func ConvCreateHandler(repo *repository.Repository, maker *helper.JWTMaker) http
 		err = repo.CreateConversationWithParticipants(r.Context(), req.Title, req.ParticipantIDs)
 		if err != nil {
 			logger.Log.Error("Failed to create conversation in convCreateHandler", "user_id", userID, "error", err)
-			w.Header().Set("Content-Type", "application/json")
-			w.WriteHeader(http.StatusInternalServerError)
-			json.NewEncoder(w).Encode(map[string]string{
-				"error": "Failed to create conversation",
-			})
+			writeJSONError(w, http.StatusInternalServerError, "Failed to create conversation")
 			return
 		}
 
 		logger.Log.Info("Conversation created successfully", "user_id", userID)
 		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusCreated)
 		json.NewEncoder(w).Encode(map[string]string{
 			"message": "Conversation created successfully",
 		})
 	})
+}
+
+func ConvMemberListHandler(repo *repository.Repository, maker *helper.JWTMaker) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Method check
+		if r.Method != http.MethodGet {
+			logger.Log.Error("Invalid method for convMemberListHandler", "method", r.Method)
+			writeJSONError(w, http.StatusMethodNotAllowed, "Method not allowed")
+			return
+		}
+
+		// call JWTVerifier from helper to verify token and extract user ID
+		userID, err := helper.JWTVerifier(r, maker)
+		if err != nil {
+			logger.Log.Error("JWT verification failed in convMemberListHandler", "error", err)
+			writeJSONError(w, http.StatusUnauthorized, "Unauthorized: "+err.Error())
+			return
+		}
+
+		// Extract conversation ID from query parameters
+		conversationID, err := ConvIdExtract(r)
+		if err != nil {
+			logger.Log.Error("Failed to extract conversation ID in convMemberListHandler", "error", err)
+			writeJSONError(w, http.StatusBadRequest, err.Error())
+			return
+		}
+
+		// Check if the user is a participant in the conversation
+		statusCode, err := participantCheck(r, repo, conversationID, userID)
+		if err != nil {
+			writeJSONError(w, statusCode, err.Error())
+			return
+		}
+
+		// Fetch participants for the conversation
+		participants, err := repo.GetParticipantsByConversationID(r.Context(), conversationID)
+		if err != nil {
+			logger.Log.Error("Failed to fetch participants for conversation in convMemberListHandler", "conversation_id", conversationID, "user_id", userID, "error", err)
+			writeJSONError(w, http.StatusInternalServerError, "Failed to fetch participants")
+			return
+		}
+
+		// Return participants as JSON response
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"participants": participants,
+		})
+	})
+}
+
+func ConvIdExtract(r *http.Request) (uuid.UUID, error) {
+	conversationIDStr := r.URL.Query().Get("conversation_id")
+	if conversationIDStr == "" {
+		return uuid.Nil, fmt.Errorf("missing conversation_id query parameter")
+	}
+
+	conversationID, err := uuid.Parse(conversationIDStr)
+	if err != nil {
+		return uuid.Nil, fmt.Errorf("invalid conversation_id format: %w", err)
+	}
+
+	return conversationID, nil
+}
+
+func participantCheck(r *http.Request, repo *repository.Repository, conversationID, userID uuid.UUID) (int, error) {
+	isParticipant, err := repo.IsParticipant(r.Context(), conversationID, userID)
+	if err != nil {
+		logger.Log.Error("Failed to check participant status", "conversation_id", conversationID, "user_id", userID, "error", err)
+		return http.StatusInternalServerError, fmt.Errorf("failed to check participant status: %w", err)
+	}
+	if !isParticipant {
+		logger.Log.Warn("User is not a participant in conversation", "conversation_id", conversationID, "user_id", userID)
+		return http.StatusForbidden, fmt.Errorf("you are not a participant in this conversation")
+	}
+	return 200, nil
 }

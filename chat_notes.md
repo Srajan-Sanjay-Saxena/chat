@@ -487,17 +487,6 @@ Security & origin: tighten Upgrader.CheckOrigin for prod and consider token refr
 
 ---
 
-Notes index (split into compact docs):
-
-- `docs/windows_processes.md` — PowerShell / process commands and examples.
-- `docs/go_patterns.md` — context, goroutines, HTTP patterns, env loading.
-- `docs/schema_migrations.md` — schema overview, migrations, indexes, test-reset notes.
-- `docs/repository_layer.md` — repo interfaces, transactions, best practices.
-- `docs/pgx_reference.md` — pgx/pgxpool quick reference.
-- `docs/errors_and_wrapping.md` — error wrapping and `errors.Is` guidance.
-- `docs/changes_summary.md` — concise list of recent changes and rationale.
-
-If you'd like a different split (more/less files or alternative grouping), tell me which sections to combine or expand.
 2. The handler validates the bearer token and upgrades the request.
 3. The new client is registered in the hub and its pumps start.
 4. Subscribe and unsubscribe requests are processed by the hub, not by the client goroutine.
@@ -615,9 +604,7 @@ tried using transaction in migrate func
 succeded
 
 
-
-
-TODO :- ADD async message persistence for better respomsiveness and throughput
+TODO :- ADD async message persistence for better responsiveness and throughput
 
 Stage 1
 WebSocket → DB
@@ -634,3 +621,23 @@ Stage 4
 If traffic becomes huge:
 WebSocket → Kafka → workers → DB
 
+24 - 05 - 26
+
+Removed publisher logic from pump directly to an interface so that we can add other publishers without changing pumping file often.
+
+Added shared error response writer for all handlers using DRY.
+
+Added tests across handler, repository, and end-to-end paths.
+
+Added message pagination controls in `handler.MessageHandler` using `before` and `limit`.
+
+Added `handler.ConvMemberListHandler` and wired `/conversation/members` in `main.go`.
+
+Split docs into GitHub-safe and internal-only indexes under `docs/`.
+
+Notes index (split into compact docs):
+
+- GitHub-safe notes: `docs/github/index.md`
+- Internal-only notes: `docs/internal/index.md`
+
+If you'd like a different split, I can move individual files between the two groups.

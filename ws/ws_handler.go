@@ -88,7 +88,7 @@ func handleWebSocketConnection(repo *repository.Repository, conn *websocket.Conn
 		isParticipant:           isParticipant,
 	}
 	hub.register <- client
-	messageService := service.NewMessageService(repo, isParticipant)
+	messageService := service.NewMessageService(repo, NewLocalPublisher(hub), isParticipant)
 	ctx, cancel := context.WithCancel(context.Background())
 
 	// Start goroutines for reading and writing messages

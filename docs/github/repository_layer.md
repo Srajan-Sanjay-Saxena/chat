@@ -17,4 +17,3 @@ Best practices
 - Use `INSERT ... RETURNING` to get generated ids/timestamps.
 - Avoid `SELECT *`; list columns explicitly to keep `Scan` stable.
 - Keep SQL in repository implementations.
-

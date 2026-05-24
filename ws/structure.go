@@ -34,7 +34,6 @@ type Hub struct {
 }
 
 type broadcastMessage struct {
-	sender         *client
 	message        []byte
 	conversationID uuid.UUID
 }
@@ -107,20 +106,6 @@ func (h *Hub) Run() {
 
 		// Handle broadcasting messages to subscribed clients
 		case message := <-h.broadcast:
-			if message.sender == nil || !message.sender.subscribedConversations[message.conversationID] {
-				// send non-blocking error ack back to sender when publish is not allowed
-				if message.sender != nil {
-					ack := map[string]string{"type": "error", "action": "publish", "conversation_id": message.conversationID.String(), "reason": "not_subscribed"}
-					if b, err := json.Marshal(ack); err == nil {
-						select {
-						case message.sender.send <- b:
-						default:
-						}
-					}
-				}
-				logger.Log.Warn("sender not subscribed to conversation", "conversation_id", message.conversationID)
-				continue
-			}
 			for client := range h.clients {
 				if client.subscribedConversations[message.conversationID] {
 					select {

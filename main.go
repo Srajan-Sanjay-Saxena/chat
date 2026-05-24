@@ -65,19 +65,21 @@ func main() {
 	// Start the server
 	mux := http.NewServeMux()
 	authMiddleware := Middleware.JWTMiddleware(maker)
-	logger.Log.Info("Registering handlers")
 	mux.Handle("/health", handler.HealthCheckHandler())
-	logger.Log.Info("Health check handler registered at /health")
+	// Authentication routes
 	mux.Handle("/signup", handler.SignUpHandler(repo))
-	logger.Log.Info("Sign-up handler registered at /signup")
 	mux.Handle("/login", handler.LoginHandler(repo, maker))
-	logger.Log.Info("Login handler registered at /login")
-
+	logger.Log.Info("Authentication handlers registered under /signup and /login")
+	// Conversation routes
 	mux.Handle("/conversation/join", authMiddleware(handler.ConversationJoinHandler(repo, maker)))
 	mux.Handle("/conversation/leave", authMiddleware(handler.ConversationLeaveHandler(repo, maker)))
 	mux.Handle("/conversation/create", authMiddleware(handler.ConvCreateHandler(repo, maker)))
 	mux.Handle("/conversation/list", authMiddleware(handler.ConvListHandler(repo, maker)))
-	logger.Log.Info("Conversation handlers registered under /conversation/join and /conversation/leave")
+	mux.Handle("/conversation/members", authMiddleware(handler.ConvMemberListHandler(repo, maker)))
+	mux.Handle("/conversation/messages", authMiddleware(handler.MessageHandler(repo, maker)))
+
+	logger.Log.Info("Conversation handlers registered under /conversation/*")
+	// WebSocket route
 	mux.Handle("/past_messages", authMiddleware(handler.MessageHandler(repo, maker)))
 	logger.Log.Info("Message handler registered at /past_messages")
 	originAllowlist := config.ParseAllowedOrigins(cfg.WSAllowedOrigins)

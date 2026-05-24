@@ -28,7 +28,7 @@ type outMessage struct {
 
 const writeWait = 10 * time.Second
 const pongWait = 60 * time.Second
-const maxMsgSize = 512
+const maxMsgSize = 1024 * 4 // 4KB maximum message size
 const pingPeriod = (pongWait * 9) / 10
 
 func (client *client) readPump(ctx context.Context, messageService *service.MessageService) {
@@ -72,7 +72,12 @@ func (client *client) readPump(ctx context.Context, messageService *service.Mess
 		// Handle different message types
 		switch inMsg.Type {
 		case "message":
-			savedMessage, err := messageService.CreateMessage(ctx, client.userID, inMsg.ConversationID, inMsg.Content)
+			// Create message in the database and broadcast to conversation participants
+			// Use a context with timeout for the message creation to avoid hanging if the database is slow
+			msgctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+			defer cancel()
+
+			outMsg, err := messageService.CreateMessage(msgctx, client.userID, inMsg.ConversationID, inMsg.Content)
 			if err != nil {
 				if err == service.ErrNotParticipant {
 					logger.Log.Warn("client is not a participant for message publish", "user_id", client.userID, "conversation_id", inMsg.ConversationID)
@@ -82,26 +87,7 @@ func (client *client) readPump(ctx context.Context, messageService *service.Mess
 				continue
 			}
 
-			
-			outMsg := outMessage{
-				Type:           "message",
-				ID:             savedMessage.ID,
-				SenderID:       savedMessage.SenderID,
-				ConversationID: savedMessage.ConversationID,
-				Content:        savedMessage.Content,
-				CreatedAt:      savedMessage.CreatedAt,
-			}
-			outMsgBytes, err := json.Marshal(outMsg)
-			if err != nil {
-				logger.Log.Error("error marshalling outgoing message", "error", err)
-				continue
-			}
-			client.hub.broadcast <- broadcastMessage{
-				sender:         client,
-				message:        outMsgBytes,
-				conversationID: inMsg.ConversationID,
-			}
-			logger.Log.Info("message received from client", "user_id", client.userID, "conversation_id", inMsg.ConversationID, "content_length", len(inMsg.Content))
+			logger.Log.Info("message received from client", "user_id", client.userID, "conversation_id", outMsg.ConversationID, "content_length", len(outMsg.Content))
 
 		case "subscribe":
 			client.hub.subscribe <- subscription{

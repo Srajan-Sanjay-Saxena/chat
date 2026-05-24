@@ -1,5 +1,7 @@
 # Test DB reset & migration (compact)
 
+Internal-only notes: keep this file out of GitHub-facing documentation.
+
 Context:
 - Tests need a clean DB schema for reliable integration testing.
 - Existing helper: `helper.ResetSchema()` executes `0001_schema.down.sql` then `0001_schema.up.sql` under an advisory lock.
