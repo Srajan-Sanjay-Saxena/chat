@@ -21,10 +21,14 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/joho/godotenv"
 )
 
 var testRepo *repository.Repository
+var suiteLockConn *pgxpool.Conn
+
+const suiteLockKey int64 = 842020
 
 type authResponse struct {
 	Status    string `json:"status"`
@@ -57,11 +61,26 @@ func TestMain(m *testing.M) {
 	if err := db.DB.Ping(context.Background()); err != nil {
 		panic("failed to ping database: " + err.Error())
 	}
+
+	lockConn, err := db.DB.Acquire(context.Background())
+	if err != nil {
+		panic("failed to acquire test DB lock connection: " + err.Error())
+	}
+	suiteLockConn = lockConn
+	if _, err := suiteLockConn.Exec(context.Background(), `select pg_advisory_lock($1)`, suiteLockKey); err != nil {
+		panic("failed to acquire test DB advisory lock: " + err.Error())
+	}
+
 	if err := helper.ResetSchema(); err != nil {
 		panic("failed to reset database schema: " + err.Error())
 	}
 	testRepo = repository.NewRepository(db.DB)
-	os.Exit(m.Run())
+	exitCode := m.Run()
+	if suiteLockConn != nil {
+		_, _ = suiteLockConn.Exec(context.Background(), `select pg_advisory_unlock($1)`, suiteLockKey)
+		suiteLockConn.Release()
+	}
+	os.Exit(exitCode)
 }
 
 func TestChatFlow_E2E(t *testing.T) {

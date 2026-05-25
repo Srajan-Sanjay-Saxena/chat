@@ -77,7 +77,7 @@ func (maker *JWTMaker) VerifyToken(tokenStr string) (*UserClaims, error) {
 		return nil, fmt.Errorf("failed to parse token: %w", err)
 	}
 
-	// Assert that the token claims are of type UserClaims and return them
+	// Assert that the token claims are of type UserClaims
 	claims, ok := token.Claims.(*UserClaims)
 	if !ok || !token.Valid {
 		return nil, fmt.Errorf("invalid token: %w", jwt.ErrTokenInvalidClaims)
@@ -105,6 +105,8 @@ func (maker *JWTMaker) VerifyToken(tokenStr string) (*UserClaims, error) {
 		return nil, fmt.Errorf("invalid token issuer: expected 'chat-v2', got '%s': %w", issuer, jwt.ErrTokenInvalidClaims)
 	}
 
+	// Expiration validation is handled by jwt.ParseWithClaims, 
+	// so we don't need to check it manually here
 	return claims, nil
 }
 
@@ -130,12 +132,9 @@ func ExtractBearerToken(r *http.Request) (string, error) {
 }
 
 func JWTVerifier(r *http.Request, maker *JWTMaker) (uuid.UUID, error) {
+	// Verify the JWT token from the HTTP request and extract the user ID
 	if r == nil {
 		return uuid.Nil, fmt.Errorf("request cannot be nil")
-	}
-
-	if userID, ok := GetUserFromContext(r.Context()); ok {
-		return userID, nil
 	}
 
 	if maker == nil {

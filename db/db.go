@@ -10,6 +10,8 @@ import(
 
 var DB *pgxpool.Pool
 
+// Connect establishes a connection to the PostgreSQL database using the provided DSN.
+// It uses a context with a timeout to avoid hanging indefinitely if the database is unreachable.
 func Connect(dbSource string) error {
 	// Create a context with a timeout for the connection attempt
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
@@ -35,7 +37,8 @@ func Connect(dbSource string) error {
 	return nil
 }
 
-// maskDSN returns a version of the DSN with the password redacted.
+// maskDSN returns a version of the DSN with the password redacted. 
+// It preserves the username, host, and path for logging purposes.
 func maskDSN(dsn string) string {
 	u, err := url.Parse(dsn)
 	if err != nil {

@@ -8,6 +8,7 @@ import (
 	"context"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/gorilla/websocket"
@@ -86,6 +87,7 @@ func handleWebSocketConnection(repo *repository.Repository, conn *websocket.Conn
 		userID:                  userID,
 		hub:                     hub,
 		isParticipant:           isParticipant,
+		lastActive:              time.Now(),
 	}
 	hub.register <- client
 	messageService := service.NewMessageService(repo, NewLocalPublisher(hub), isParticipant)

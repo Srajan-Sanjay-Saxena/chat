@@ -11,26 +11,30 @@ import (
 	"github.com/gorilla/websocket"
 )
 
-type client struct {
-	conn                    *websocket.Conn
-	send                    chan []byte
+type client struct { 
+	conn                    *websocket.Conn // connection to the client
+	send                    chan []byte	// outbound messages to this client
 	subscribedConversations map[uuid.UUID]bool
-	userID                  uuid.UUID
+	userID                  uuid.UUID 
 	hub                     *Hub
 	isParticipant           func(context.Context, uuid.UUID, uuid.UUID) (bool, error)
-	closeOnce               sync.Once
+	closeOnce               sync.Once 
+	mu                      sync.Mutex
+	lastActive              time.Time
 }
 
 type Hub struct {
-	clients     map[*client]bool
-	register    chan *client
-	unregister  chan *client
-	subscribe   chan subscription
-	unsubscribe chan subscription
-	broadcast   chan broadcastMessage
-	stop        chan struct{}
-	done        chan struct{}
-	once        sync.Once
+	// On scaling add clients map for conversation ID
+	// to list of clients subscribed to that conversation for more efficient broadcasting
+	clients     map[*client]bool // registered clients
+	register    chan *client // clients send themselves here to register
+	unregister  chan *client // clients send themselves here to unregister
+	subscribe   chan subscription // clients want to get messages from this conversation
+	unsubscribe chan subscription // clients want to stop getting messages from this conversation
+	broadcast   chan broadcastMessage // messages to broadcast to clients, with conversation ID for routing
+	stop        chan struct{}	// closed to signal hub to stop and clean up
+	done        chan struct{} // closed when hub has fully stopped and cleaned up
+	once        sync.Once	// ensures Stop can only be called once
 }
 
 type broadcastMessage struct {
@@ -58,6 +62,40 @@ func NewHub() *Hub {
 	}
 }
 
+// StartIdleSweeper starts a background goroutine that periodically closes clients
+// which have been idle for longer than idleTimeout. The goroutine stops when
+// the Hub is stopped (when h.stop is closed).
+func (h *Hub) StartIdleSweeper(idleTimeout, period time.Duration) {
+	go func() {
+		ticker := time.NewTicker(period)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ticker.C:
+				now := time.Now()
+				for c := range h.clients {
+					c.mu.Lock()
+					la := c.lastActive
+					c.mu.Unlock()
+					if now.Sub(la) > idleTimeout {
+						logger.Log.Info("sweeper closing idle client", "user_id", c.userID)
+						c.close()
+					}
+				}
+			case <-h.stop:
+				return
+			}
+		}
+	}()
+}
+
+func (c *client) touch() {
+	c.mu.Lock()
+	c.lastActive = time.Now()
+	c.mu.Unlock()
+}
+
+// Idempotent close that can be called from multiple goroutines
 func (c *client) close() {
 	c.closeOnce.Do(func() {
 		// Try a non-blocking send first to avoid deadlock if called from hub goroutine.
@@ -76,6 +114,7 @@ func (c *client) close() {
 	})
 }
 
+// Idempotent close that can be called from multiple goroutines
 func (h *Hub) Stop() {
 	h.once.Do(func() {
 		close(h.stop)

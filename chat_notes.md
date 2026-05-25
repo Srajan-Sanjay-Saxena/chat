@@ -640,4 +640,169 @@ Notes index (split into compact docs):
 - GitHub-safe notes: `docs/github/index.md`
 - Internal-only notes: `docs/internal/index.md`
 
-If you'd like a different split, I can move individual files between the two groups.
+
+**Connection vs Session**
+- **Connection:** a live WebSocket/TCP link between client and server (goroutine + socket). Short-lived; ends when socket closes.
+- **Session:** logical user state (user ID, auth, subscriptions) that can survive reconnects. Often stored in memory or a DB/cache and tied to connection(s).
+
+**Cleanup Hardening (what it means)**
+- Make closing routines safe, idempotent, and fast so resources always free:
+  - Ensure only one close path runs (use `sync.Once`).
+  - Close socket, channels, and unregister from hub/maps.
+  - Cancel related contexts so goroutines exit.
+  - Handle partial failures (logs + retries where safe).
+- Goal: prevent goroutine leaks, stale memory, duplicated map entries, and resource exhaustion under failures.
+
+**Stale Socket Cleanup (how to detect & act)**
+- Heartbeat (recommended):
+  - Server pings client periodically.
+  - Client responds with pong (or vice‑versa).
+  - On missing pongs / ping timeouts, consider connection dead.
+- Read/write deadlines:
+  - Use `SetReadDeadline` / `SetWriteDeadline` (or gorilla/websocket’s helpers) to detect blocked/half-open TCP.
+- Activity timestamps:
+  - Track `lastActive` per client (update on any inbound/outbound message).
+  - Background sweeper closes clients idle past threshold.
+- Write failures:
+  - Treat write errors (broken pipe) as disconnect and cleanup.
+
+**Concrete patterns for Go WebSockets**
+- Spawn two goroutines per client:
+  - `readPump`: set read deadline, set `PongHandler` to extend deadline, loop read JSON, update `lastActive`, on error -> cleanup.
+  - `writePump`: ticker for sending pings and flushing outgoing messages, on error -> cleanup.
+- Safe cleanup function:
+  - Use `sync.Once` to run:
+    - close `conn`
+    - close send channel (non-blocking)
+    - unregister client from hub (remove from map)
+    - cancel ctx for any DB/io work
+  - Example sketch:
+    - var closeOnce sync.Once
+    - func (c *Client) close() { closeOnce.Do(func(){ hub.unregister <- c; c.conn.Close(); close(c.send); }) }
+- Avoid blocking sends:
+  - Use buffered send channel; drop or backpressure messages when buffer full, but still detect client slowness and close after threshold.
+- Session handling:
+  - Keep session metadata in memory or Redis with TTL. When client reconnects, re-associate by session ID.
+  - Expire session entries after inactivity.
+
+**Verification & testing**
+- Unit tests:
+  - Test `close()` is idempotent (call multiple times; assert no panic).
+  - Use `goleak` (go.uber.org/goleak) to detect goroutine leaks in tests.
+- Integration tests:
+  - Simulate network drop, slow client (stop reading), and long idle to ensure sweeper closes them.
+  - Start many connections and ensure counts return to baseline after disconnects.
+- Metrics & logging:
+  - Gauge: `active_connections`
+  - Counter: `connections_closed`, `cleanup_errors`
+  - Log why cleanup happened (read error, pong timeout, sweeper idle).
+- Runtime checks:
+  - Monitor `runtime.NumGoroutine()` during load tests.
+  - Alert if goroutines grow without bound or active connections stay high.
+
+**Checklist to implement (copyable)**
+- Implement `readPump` with `SetReadDeadline` and `PongHandler`.
+- Implement `writePump` that pings periodically and handles send channel.
+- Add `closeOnce` guarded cleanup that unregisters and frees resources.
+- Track `lastActive` timestamp and update on read/write.
+- Add sweeper goroutine: runs every N seconds, closes clients idle > threshold.
+- Add metrics & structured logs for connection lifecycle events.
+- Add tests: idempotent close, network-drop integration, goroutine leak detection.
+
+**Common pitfalls**
+- Double-closing socket or channel -> panic.
+- Blocking on send to a slow client -> goroutine leak unless bounded.
+- Forgetting to remove client from hub map -> memory leak and duplicate messages.
+- Long validation/blocking in read handler -> blocks pump; use worker pool or buffered channels for processing.
+
+
+Good plan — subscribing only when the user opens a conversation is the right default for efficiency. Here’s a focused, detailed analysis and practical guidance for that approach, tied to your codebase.
+
+High‑level model
+- Connection vs join/subscribe:
+  - Connection = live WebSocket connection (one per client/device).
+  - Join (DB): user is a participant in a conversation (persistent membership).
+  - Subscribe (WS): connection-level intent to receive live updates for a conversation (ephemeral; per-connection).
+- In your repo: `client.subscribedConversations` is the subscription map; hub checks it before sending broadcasts (see structure.go). `readPump` handles `"subscribe"`/`"unsubscribe"` and sends subscription events (see pumping.go). Authentication/authorization is enforced via `isParticipant` hook (see `subscribe` handling in structure.go).
+
+Why subscribe-on-open (your idea) is good
+- Bandwidth: clients only receive messages for currently open conversations, reducing network and CPU work.
+- Memory/CPU: hub doesn’t need to maintain large active subscription sets for many open-but-unused conversations.
+- UX: chat UI typically needs live updates only for the active chat window.
+
+What you must handle server-side (concise checklist)
+- Authorization: verify `isParticipant` on subscribe (you already do).
+- Backfill on subscribe: fetch recent messages or messages since last_seen so the user doesn’t miss messages that arrived while unsubscribed.
+- Unread counts & notifications: send a small “notification” event for messages in non-subscribed conversations (optional, separate from full message stream).
+- Slow clients and backpressure: use buffered `send` channels, drop or backpressure, and disconnect very slow clients (your hub already disconnects on full buffer).
+- Reconnect / session resume: decide whether subscriptions are persisted across reconnects (in-memory vs Redis).
+- Limits & rate limiting: constrain subscriptions per-connection and rate of subscribe requests to avoid abuse.
+
+Implementation details and tradeoffs
+
+1) Subscribe-on-open flow (recommended)
+- Client: open WS after login; when user opens a conversation, send `{type:"subscribe", conversation_id: X}`.
+- Server: on subscribe
+  - Check `isParticipant(ctx, convID, userID)` (already in code).
+  - Set `client.subscribedConversations[convID] = true`.
+  - Return an ack `{type:"subscribed", conversation_id: X}`.
+  - Immediately backfill: call repo to fetch last N messages or messages since a `lastSeen` cursor and send them as normal `message` events.
+- On close/unload: client sends `{type:"unsubscribe", conversation_id: X}` or connection close triggers cleanup.
+
+2) Backfill / missed messages
+- Option A (simple): on subscribe fetch last 50 messages and send them. Cheap, simple.
+- Option B (accurate): store a per-user `last_read` or last-seen cursor in DB; on subscribe fetch messages after that cursor. Also update `last_read` when user reads.
+- Important: do NOT rely on ephemeral in-memory state for missed messages unless you persist it.
+
+3) Notifications for non-subscribed conversations
+- When a message arrives for a conversation the connection is not subscribed to:
+  - Option: send a lightweight `notification` event (conversation id, snippet, sender, time) so UI can increase unread badge.
+  - This preserves the “don’t stream full messages” policy while keeping UI responsive.
+
+4) Resource tuning & protection
+- Limit `len(client.send)` buffer and disconnect when writes fail or buffer is full (you already have this behavior).
+- Limit number of simultaneous subscriptions per client (e.g., 20–50).
+- Rate-limit subscribe/unsubscribe calls per second to avoid thrashing.
+- Consider dropping oldest subscriptions if a client tries to subscribe to more than the cap (or return 429).
+
+5) Reconnects & persistence (multi-device / multi-server)
+- Single-server: subscriptions are per-connection; reconnect means re-subscribe from client.
+- Multi-server: use Redis pub/sub for cross-instance broadcast and a session store (Redis) to persist session → subscriptions if you want automatic resume.
+- If you persist subscriptions, record session ID → conversation IDs in Redis with a TTL; on reconnect reattach and re-subscribe to Redis channels.
+
+6) Scaling broadcasts (if you later need to scale to multiple backend instances)
+- Publish each message to a Redis topic keyed by conversation ID; each server instance subscribes to conversations for its connected clients and forwards to local clients.
+- Keep per-server hub responsible for local client routing only.
+
+7) Edge cases and tests to add
+- Test subscribe authorization: attempt to subscribe when not a participant → should be rejected.
+- Test backfill correctness: subscribe and confirm you get recent messages and no duplicates.
+- Test slow-client behavior: send messages quickly to a slow client, verify disconnect or drop.
+- Test reconnect: verify client re-subscribes and receives missed messages via backfill.
+
+Where to change in your code (practical pointers)
+- A: add backfill on successful subscribe in structure.go after you set the map entry and send ack. Call repository method to fetch recent messages and push them to `client.send`. Also update `lastActive`.
+- B: keep `isParticipant` check (already present).
+- C: optionally implement a small `notification` envelope in pumping.go/hub broadcast path when `client.subscribedConversations[convID] == false`.
+- D: keep the existing safety: `sync.Once` close, buffered `send`, and sweeper (you already added `lastActive` + sweeper).
+
+Example UX behavior (client-side)
+- On app start after login: open WS connection to ws.
+- On opening conversation view: send subscribe request.
+- On closing conversation view: send unsubscribe request.
+- On reconnection (WS close): try to re-auth and re-subscribe active conversation(s).
+- For other convs: show unread badges and fetch history on open (or use notification events).
+
+Summary / recommendation
+- Continue with subscribe-on-open approach (good tradeoff).
+- Implement backfill on subscribe (ensures no missed messages).
+- Add notification events for non-subscribed convs if you want immediate unread indicators without streaming full messages.
+- Enforce caps and rate-limits to protect the server.
+- For multi-instance scaling later, move broadcasts to Redis and persist subscriptions in Redis if you want automatic resume.
+
+If you’d like, I can:
+- implement backfill on subscribe in your repo (edit structure.go and add a repository call),
+- add a small example of the client subscribe/unsubscribe messages and expected server responses,
+- or add tests for subscribe authorization and backfill.
+
+Which of those should I do next?

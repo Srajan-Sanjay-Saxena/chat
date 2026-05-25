@@ -36,7 +36,7 @@ func (client *client) readPump(ctx context.Context, messageService *service.Mess
 	// Adding deadline to prevent hanging connections
 	client.conn.SetReadLimit(maxMsgSize)
 	client.conn.SetReadDeadline(time.Now().Add(pongWait))
-	client.conn.SetPongHandler(func(string) error { client.conn.SetReadDeadline(time.Now().Add(pongWait)); return nil })
+	client.conn.SetPongHandler(func(string) error { client.conn.SetReadDeadline(time.Now().Add(pongWait)); client.touch(); return nil })
 
 	for {
 		// Read message from WebSocket connection
@@ -45,6 +45,8 @@ func (client *client) readPump(ctx context.Context, messageService *service.Mess
 			logger.Log.Error("error reading message from client", "error", err)
 			break
 		}
+		// mark active on successful read
+		client.touch()
 
 		// Unmarshal incoming message
 		var inMsg inMessage
@@ -72,7 +74,7 @@ func (client *client) readPump(ctx context.Context, messageService *service.Mess
 		// Handle different message types
 		switch inMsg.Type {
 		case "message":
-			// Create message in the database and broadcast to conversation participants
+			// Create message in the database and publish to conversation channel using message service
 			// Use a context with timeout for the message creation to avoid hanging if the database is slow
 			msgctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 			defer cancel()
@@ -135,6 +137,8 @@ func (client *client) writePump() {
 				client.close()
 				return
 			}
+			// mark active on successful write
+			client.touch()
 			// Log the message sent to the client
 			logger.Log.Info("message sent to client", "user_id", client.userID, "message_length", len(message))
 
@@ -145,6 +149,7 @@ func (client *client) writePump() {
 				client.close()
 				return
 			}
+			client.touch()
 			logger.Log.Info("ping sent to client", "user_id", client.userID)
 		}
 	}

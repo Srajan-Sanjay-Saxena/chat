@@ -31,12 +31,14 @@ func ConversationLeaveHandler(repo *repository.Repository, maker *helper.JWTMake
 
 func conversationMembershipHandler(repo *repository.Repository, maker *helper.JWTMaker, operation string) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Method check
 		if r.Method != http.MethodPost {
 			logger.Log.Error("Invalid method for ConversationMembershipHandler", "method", r.Method, "operation", operation)
 			writeJSONError(w, http.StatusMethodNotAllowed, "Method not allowed")
 			return
 		}
 
+		// verify JWT and extract user ID
 		userID, err := helper.JWTVerifier(r, maker)
 		if err != nil {
 			logger.Log.Error("JWT verification failed in ConversationMembershipHandler", "error", err, "operation", operation)
@@ -44,6 +46,7 @@ func conversationMembershipHandler(repo *repository.Repository, maker *helper.JW
 			return
 		}
 
+		// Extract conversation ID from query parameters
 		conversationID, err := ConvIdExtract(r)
 		if err != nil {
 			logger.Log.Error("Failed to extract conversation ID in ConversationMembershipHandler", "error", err, "operation", operation)
@@ -51,6 +54,7 @@ func conversationMembershipHandler(repo *repository.Repository, maker *helper.JW
 			return
 		}
 
+		// Perform the requested operation (join or leave)
 		if operation == "join" {
 			err = repo.AddParticipant(r.Context(), conversationID, userID)
 			if err != nil {
@@ -87,7 +91,7 @@ func ConvListHandler(repo *repository.Repository, maker *helper.JWTMaker) http.H
 			return
 		}
 
-		// call JWTVerifier from helper to verify token and extract user ID
+		// verify JWT and extract user ID
 		userID, err := helper.JWTVerifier(r, maker)
 		if err != nil {
 			logger.Log.Error("JWT verification failed in convListHandler", "error", err)
@@ -121,7 +125,7 @@ func ConvCreateHandler(repo *repository.Repository, maker *helper.JWTMaker) http
 			return
 		}
 
-		// call JWTVerifier from helper to verify token and extract user ID
+		// verify JWT and extract user ID
 		userID, err := helper.JWTVerifier(r, maker)
 		if err != nil {
 			logger.Log.Error("JWT verification failed in convCreateHandler", "error", err)

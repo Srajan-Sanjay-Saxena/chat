@@ -59,7 +59,8 @@ func main() {
 
 	// Hub for managing WebSocket clients and broadcasting messages
 	hub := ws.NewHub()
-	go hub.Run()
+	go hub.Run() // Start the hub in a separate goroutine
+	go hub.StartIdleSweeper(5*time.Minute, 1*time.Minute) // Start sweeper with 5 min idle timeout and 1 min check interval
 	logger.Log.Info("WebSocket hub started")
 
 	// Start the server
