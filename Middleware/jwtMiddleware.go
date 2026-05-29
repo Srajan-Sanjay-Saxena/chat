@@ -1,8 +1,8 @@
 package Middleware
 
 import (
-	"net/http"
 	"chat-v2/helper"
+	"net/http"
 )
 
 func JWTMiddleware(maker *helper.JWTMaker) func(http.Handler) http.Handler {
@@ -22,7 +22,7 @@ func JWTMiddleware(maker *helper.JWTMaker) func(http.Handler) http.Handler {
 				http.Error(w, "Unauthorized: "+err.Error(), http.StatusUnauthorized)
 				return
 			}
-			
+
 			// Set the token in the request context for downstream handlers to use
 			ctx := helper.SetUserContext(r.Context(), claims.ID)
 			r = r.WithContext(ctx)

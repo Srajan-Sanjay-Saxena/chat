@@ -1,13 +1,13 @@
 package helper
 
-import(
+import (
+	"chat-v2/logger"
 	"golang.org/x/crypto/bcrypt"
 	"regexp"
-	"chat-v2/logger"
 )
 
 func HashPassword(password string) (string, error) {
-	bytes , err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
+	bytes, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
 	if err != nil {
 		logger.Log.Error("Failed to hash password", "error", err)
 		return "", err

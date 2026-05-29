@@ -51,12 +51,25 @@ func TestMain(m *testing.M) {
 	_ = godotenv.Load(filepath.Join(repoRoot, "..", ".env"))
 	logger.Init()
 
-	dsn := os.Getenv("dbSource")
-	if dsn == "" {
-		panic("dbSource is not set")
-	}
-	if err := db.Connect(dsn); err != nil {
-		panic("failed to connect to database: " + err.Error())
+	// Optionally use an ephemeral Postgres container for tests.
+	if os.Getenv("USE_DOCKER_TESTDB") == "1" {
+		_, cleanup, err := helper.StartTestDB()
+		if err != nil {
+			panic("failed to start test DB container: " + err.Error())
+		}
+		defer func() {
+			if cleanup != nil {
+				_ = cleanup()
+			}
+		}()
+	} else {
+		dsn := os.Getenv("dbSource")
+		if dsn == "" {
+			panic("dbSource is not set")
+		}
+		if err := db.Connect(dsn); err != nil {
+			panic("failed to connect to database: " + err.Error())
+		}
 	}
 	if err := db.DB.Ping(context.Background()); err != nil {
 		panic("failed to ping database: " + err.Error())
@@ -84,6 +97,7 @@ func TestMain(m *testing.M) {
 }
 
 func TestChatFlow_E2E(t *testing.T) {
+	logger.Log.Info("Starting end-to-end test")
 	reset := func() {
 		if err := helper.ResetSchema(); err != nil {
 			t.Fatalf("reset schema: %v", err)
@@ -220,9 +234,77 @@ func TestChatFlow_E2E(t *testing.T) {
 	}
 }
 
+func TestE2E_CreatePrivateByUsernames(t *testing.T) {
+	reset := func() {
+		if err := helper.ResetSchema(); err != nil {
+			t.Fatalf("reset schema: %v", err)
+		}
+	}
+	reset()
+
+	maker, err := helper.NewJWTMaker("abcdefghijklmnopqrstuvwxyz123456")
+	if err != nil {
+		t.Fatalf("new jwt maker: %v", err)
+	}
+	hub := ws.NewHub()
+	defer func() {
+		hub.Stop()
+		<-hub.Done()
+	}()
+	go hub.Run()
+
+	authMiddleware := Middleware.JWTMiddleware(maker)
+	mux := http.NewServeMux()
+	mux.Handle("/signup", handler.SignUpHandler(testRepo))
+	mux.Handle("/login", handler.LoginHandler(testRepo, maker))
+	mux.Handle("/conversation/create", authMiddleware(handler.ConvCreateHandler(testRepo, maker)))
+	server := httptest.NewServer(mux)
+	defer server.Close()
+
+	creator := signupAndLogin(t, server.URL, "ec")
+	member := signupAndLogin(t, server.URL, "em")
+
+	// Create private conversation by username (creator -> member)
+	createReq, _ := http.NewRequest(http.MethodPost, server.URL+"/conversation/create", jsonBody(map[string]any{"type": "private", "participant_usernames": []string{member.Username}}))
+	createReq.Header.Set("Authorization", "Bearer "+creator.Token)
+	createResp := doJSONRequest(t, createReq)
+	if createResp.StatusCode != http.StatusCreated {
+		t.Fatalf("create private by usernames status=%d body=%s", createResp.StatusCode, createResp.Body)
+	}
+	var payload1 struct {
+		Conversation db.Conversation `json:"conversation"`
+		Created      bool            `json:"created"`
+	}
+	if err := json.Unmarshal(createResp.BodyBytes, &payload1); err != nil {
+		t.Fatalf("decode create response: %v", err)
+	}
+
+	// Create again - should return created=false and same conversation id
+	createReq2, _ := http.NewRequest(http.MethodPost, server.URL+"/conversation/create", jsonBody(map[string]any{"type": "private", "participant_usernames": []string{member.Username}}))
+	createReq2.Header.Set("Authorization", "Bearer "+creator.Token)
+	createResp2 := doJSONRequest(t, createReq2)
+	if createResp2.StatusCode != http.StatusOK {
+		t.Fatalf("second create expected 200 got=%d body=%s", createResp2.StatusCode, createResp2.Body)
+	}
+	var payload2 struct {
+		Conversation db.Conversation `json:"conversation"`
+		Created      bool            `json:"created"`
+	}
+	if err := json.Unmarshal(createResp2.BodyBytes, &payload2); err != nil {
+		t.Fatalf("decode second create: %v", err)
+	}
+	if payload2.Created {
+		t.Fatalf("expected created=false on duplicate create, got created=true")
+	}
+	if payload1.Conversation.ID != payload2.Conversation.ID {
+		t.Fatalf("expected same conversation id on duplicate create: got %s vs %s", payload1.Conversation.ID, payload2.Conversation.ID)
+	}
+}
+
 type testUserSession struct {
-	UserID uuid.UUID
-	Token  string
+	UserID   uuid.UUID
+	Token    string
+	Username string
 }
 
 type testHTTPResponse struct {
@@ -265,7 +347,7 @@ func signupAndLogin(t *testing.T, serverURL, usernamePrefix string) testUserSess
 	if err != nil {
 		t.Fatalf("parse user id: %v", err)
 	}
-	return testUserSession{UserID: parsedUserID, Token: payload.Token}
+	return testUserSession{UserID: parsedUserID, Token: payload.Token, Username: username}
 }
 
 func jsonBody(v any) *strings.Reader {

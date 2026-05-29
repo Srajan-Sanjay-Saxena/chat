@@ -1,14 +1,18 @@
 package handler
 
 import (
+	"chat-v2/db"
 	"chat-v2/helper"
 	"chat-v2/logger"
 	"chat-v2/repository"
 	"encoding/json"
+	"errors"
 	"fmt"
-	"github.com/google/uuid"
 	"net/http"
 	"strings"
+	"time"
+
+	"github.com/google/uuid"
 )
 
 func ConversationJoinHandler(repo *repository.Repository, maker *helper.JWTMaker) http.Handler {
@@ -55,6 +59,14 @@ func conversationMembershipHandler(repo *repository.Repository, maker *helper.JW
 		}
 
 		// Perform the requested operation (join or leave)
+
+		// disallow join/leave for private conversations
+		convObj, err := repo.GetConversationByID(r.Context(), conversationID)
+		if err == nil && convObj != nil && convObj.Type == "private" {
+			writeJSONError(w, http.StatusForbidden, "cannot join or leave private conversations")
+			return
+		}
+
 		if operation == "join" {
 			err = repo.AddParticipant(r.Context(), conversationID, userID)
 			if err != nil {
@@ -99,15 +111,15 @@ func ConvListHandler(repo *repository.Repository, maker *helper.JWTMaker) http.H
 			return
 		}
 
-		// Fetch conversations for the user
-		conversations, err := repo.GetConversationsByUserID(r.Context(), userID)
+		// Fetch conversations for the user, prefilling the other participant's username for private chats to avoid N+1 queries.
+		conversations, err := repo.GetConversationsWithOtherUsernameByUserID(r.Context(), userID)
 		if err != nil {
 			logger.Log.Error("Failed to fetch conversations for user in convListHandler", "user_id", userID, "error", err)
 			writeJSONError(w, http.StatusInternalServerError, "Failed to fetch conversations")
 			return
 		}
 
-		// Return conversations as JSON response
+		// Return conversations as JSON response (includes canonical_name)
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
 		json.NewEncoder(w).Encode(map[string]interface{}{
@@ -133,40 +145,120 @@ func ConvCreateHandler(repo *repository.Repository, maker *helper.JWTMaker) http
 			return
 		}
 
-		// Parse request body for conversation details (e.g., name, participant IDs)
+		// Parse request body for conversation details (e.g., name, participant IDs, type)
 		var req struct {
-			Title          string      `json:"title"`
-			ParticipantIDs []uuid.UUID `json:"participant_ids"`
+			Type                 string   `json:"type"` // "group" or "private"; defaults to "group"
+			Title                string   `json:"title"`
+			DisplayName          string   `json:"display_name"`
+			ParticipantUsernames []string `json:"participant_usernames"`
 		}
 
-		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		decoder := json.NewDecoder(r.Body)
+		decoder.DisallowUnknownFields()
+		if err := decoder.Decode(&req); err != nil {
 			logger.Log.Error("Failed to decode request body in convCreateHandler", "error", err)
 			writeJSONError(w, http.StatusBadRequest, "Invalid request body: "+err.Error())
 			return
 		}
 
-		// title should not be empty
-		if strings.TrimSpace(req.Title) == "" {
+		// default type
+		if req.Type == "" {
+			req.Type = "group"
+		}
+
+		// title required only for group conversations
+		if req.Type == "group" && strings.TrimSpace(req.Title) == "" {
 			logger.Log.Error("Conversation title cannot be empty in convCreateHandler", "user_id", userID)
-			writeJSONError(w, http.StatusBadRequest, "Conversation title cannot be empty")
+			writeJSONError(w, http.StatusBadRequest, "Conversation title cannot be empty for group conversations")
 			return
 		}
 
-		// Create conversation in the database
-		// Ensure the creator is included in the participant list
-		foundCreator := false
-		for _, id := range req.ParticipantIDs {
-			if id == userID {
-				foundCreator = true
-				break
-			}
-		}
-		if !foundCreator {
-			req.ParticipantIDs = append(req.ParticipantIDs, userID)
+		currentUser, err := repo.GetUserByID(r.Context(), userID)
+		if err != nil {
+			logger.Log.Error("Failed to fetch current user in convCreateHandler", "user_id", userID, "error", err)
+			writeJSONError(w, http.StatusInternalServerError, "Failed to create conversation")
+			return
 		}
 
-		err = repo.CreateConversationWithParticipants(r.Context(), req.Title, req.ParticipantIDs)
+		usernameOrder := make([]string, 0, len(req.ParticipantUsernames)+1)
+		usernameLookup := make(map[string]string, len(req.ParticipantUsernames)+1)
+
+		addUsername := func(username string) {
+			clean := strings.TrimSpace(username)
+			if clean == "" {
+				return
+			}
+			key := strings.ToLower(clean)
+			if _, exists := usernameLookup[key]; exists {
+				return
+			}
+			usernameLookup[key] = clean
+			usernameOrder = append(usernameOrder, clean)
+		}
+
+		for _, username := range req.ParticipantUsernames {
+			addUsername(username)
+		}
+		addUsername(currentUser.Username)
+
+		// Private conversation rules: must end up with exactly 2 participants.
+		if req.Type == "private" && len(usernameOrder) != 2 {
+			writeJSONError(w, http.StatusBadRequest, "private conversations must have exactly 2 participants")
+			return
+		}
+
+		resolvedUsernames := make([]string, 0, len(usernameOrder))
+		for _, username := range usernameOrder {
+			resolvedUsernames = append(resolvedUsernames, strings.ToLower(strings.TrimSpace(username)))
+		}
+
+		conv := &db.Conversation{
+			Type:        req.Type,
+			Title:       req.Title,
+			DisplayName: req.DisplayName,
+			ID:          uuid.New(),
+			CreatedAt:   time.Now(),
+		}
+
+		// For private chats, derive canonical_name and a display name.
+		if conv.Type == "private" {
+			if len(resolvedUsernames) == 2 && resolvedUsernames[0] != "" && resolvedUsernames[1] != "" {
+				if resolvedUsernames[0] > resolvedUsernames[1] {
+					resolvedUsernames[0], resolvedUsernames[1] = resolvedUsernames[1], resolvedUsernames[0]
+				}
+				conv.CanonicalName = resolvedUsernames[0] + ":" + resolvedUsernames[1]
+			}
+
+			if strings.TrimSpace(conv.DisplayName) == "" {
+				for _, username := range usernameOrder {
+					if strings.EqualFold(username, currentUser.Username) {
+						continue
+					}
+					conv.DisplayName = username
+					break
+				}
+			}
+
+			if conv.CanonicalName != "" {
+				if existing, err := repo.GetConversationByCanonicalName(r.Context(), conv.CanonicalName); err == nil && existing != nil {
+					w.Header().Set("Content-Type", "application/json")
+					w.WriteHeader(http.StatusOK)
+					_ = json.NewEncoder(w).Encode(map[string]any{"conversation": existing, "created": false})
+					return
+				}
+			}
+		}
+
+		err = repo.CreateConversationWithParticipantsByUsernames(r.Context(), conv, usernameOrder)
 		if err != nil {
+			if errors.Is(err, repository.ErrConversationExists) && conv.CanonicalName != "" {
+				if existing, err2 := repo.GetConversationByCanonicalName(r.Context(), conv.CanonicalName); err2 == nil && existing != nil {
+					w.Header().Set("Content-Type", "application/json")
+					w.WriteHeader(http.StatusOK)
+					_ = json.NewEncoder(w).Encode(map[string]any{"conversation": existing, "created": false})
+					return
+				}
+			}
 			logger.Log.Error("Failed to create conversation in convCreateHandler", "user_id", userID, "error", err)
 			writeJSONError(w, http.StatusInternalServerError, "Failed to create conversation")
 			return
@@ -175,9 +267,7 @@ func ConvCreateHandler(repo *repository.Repository, maker *helper.JWTMaker) http
 		logger.Log.Info("Conversation created successfully", "user_id", userID)
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusCreated)
-		json.NewEncoder(w).Encode(map[string]string{
-			"message": "Conversation created successfully",
-		})
+		_ = json.NewEncoder(w).Encode(map[string]any{"conversation": conv, "created": true})
 	})
 }
 
@@ -224,7 +314,7 @@ func ConvMemberListHandler(repo *repository.Repository, maker *helper.JWTMaker) 
 		// Return participants as JSON response
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
-		json.NewEncoder(w).Encode(map[string]interface{}{
+		json.NewEncoder(w).Encode(map[string]any{
 			"participants": participants,
 		})
 	})

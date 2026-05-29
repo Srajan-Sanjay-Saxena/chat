@@ -58,7 +58,7 @@ func (s *MessageService) CreateMessage(ctx context.Context, userID, conversation
 	if s.publisher == nil {
 		return message, nil
 	}
-	
+
 	if err := s.publisher.PublishMessage(ctx, message); err != nil {
 		return nil, err
 	}

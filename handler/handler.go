@@ -11,4 +11,3 @@ func HealthCheckHandler() http.Handler {
 		w.Write([]byte("OK"))
 	})
 }
-

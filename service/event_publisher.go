@@ -8,4 +8,3 @@ import (
 type EventPublisher interface {
 	PublishMessage(ctx context.Context, msg *db.Message) error
 }
-

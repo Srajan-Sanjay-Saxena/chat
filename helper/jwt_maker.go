@@ -105,7 +105,7 @@ func (maker *JWTMaker) VerifyToken(tokenStr string) (*UserClaims, error) {
 		return nil, fmt.Errorf("invalid token issuer: expected 'chat-v2', got '%s': %w", issuer, jwt.ErrTokenInvalidClaims)
 	}
 
-	// Expiration validation is handled by jwt.ParseWithClaims, 
+	// Expiration validation is handled by jwt.ParseWithClaims,
 	// so we don't need to check it manually here
 	return claims, nil
 }

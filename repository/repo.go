@@ -12,6 +12,7 @@ type UserRepository interface {
 	CreateUser(ctx context.Context, user *db.User) error
 	GetUserByID(ctx context.Context, id uuid.UUID) (*db.User, error)
 	GetUserByUsername(ctx context.Context, username string) (*db.User, error)
+	SearchUsers(ctx context.Context, q string, limit int) ([]*db.User, error)
 }
 
 type MessageRepository interface {
@@ -24,6 +25,7 @@ type ConversationRepository interface {
 	CreateConversation(ctx context.Context, conversation *db.Conversation) error
 	GetConversationByID(ctx context.Context, id uuid.UUID) (*db.Conversation, error)
 	GetConversationsByUserID(ctx context.Context, userID uuid.UUID) ([]*db.Conversation, error)
+	GetConversationByCanonicalName(ctx context.Context, canonical string) (*db.Conversation, error)
 }
 
 type ConversationParticipantRepository interface {
@@ -35,7 +37,6 @@ type ConversationParticipantRepository interface {
 type Repository struct {
 	DB *pgxpool.Pool
 }
-
 
 func NewRepository(db *pgxpool.Pool) *Repository {
 	return &Repository{

@@ -2,48 +2,48 @@ package repository
 
 import (
 	"chat-v2/db"
-	"context"
-	"time"
-	"encoding/json"
-	"github.com/google/uuid"
-	"encoding/base64"
 	"chat-v2/logger"
+	"context"
+	"encoding/base64"
+	"encoding/json"
 	"fmt"
+	"github.com/google/uuid"
+	"time"
 )
 
 type Cursor struct {
 	CreatedAt time.Time
-	ID uuid.UUID
+	ID        uuid.UUID
 }
 
 type MessageResponse struct {
-	Messages []*db.Message
+	Messages   []*db.Message
 	NextCursor string
-	HasMore bool
+	HasMore    bool
 }
 
 func encodeCursor(c Cursor) (string, error) {
-    b, err := json.Marshal(c)
-    if err != nil {
-        return "", err
-    }
+	b, err := json.Marshal(c)
+	if err != nil {
+		return "", err
+	}
 
-    return base64.StdEncoding.EncodeToString(b), nil
+	return base64.StdEncoding.EncodeToString(b), nil
 }
 
 func decodeCursor(s string) (*Cursor, error) {
-    b, err := base64.StdEncoding.DecodeString(s)
-    if err != nil {
-        return nil, err
-    }
+	b, err := base64.StdEncoding.DecodeString(s)
+	if err != nil {
+		return nil, err
+	}
 
-    var c Cursor
+	var c Cursor
 
-    if err := json.Unmarshal(b, &c); err != nil {
-        return nil, err
-    }
+	if err := json.Unmarshal(b, &c); err != nil {
+		return nil, err
+	}
 
-    return &c, nil
+	return &c, nil
 }
 
 func (r *Repository) CreateMessage(ctx context.Context, message *db.Message) error {
@@ -70,7 +70,7 @@ func (r *Repository) GetMessageByID(ctx context.Context, id uuid.UUID) (*db.Mess
 }
 
 func (r *Repository) GetMessagesByConversationID(ctx context.Context, conversationID uuid.UUID, before *string, limit int) (*MessageResponse, error) {
-	
+
 	// limit check
 	if limit <= 0 || limit > 100 {
 		limit = 30
@@ -119,16 +119,16 @@ func (r *Repository) GetMessagesByConversationID(ctx context.Context, conversati
 		messages = messages[:limit]
 	}
 
-    var encodedNext string
+	var encodedNext string
 	if hasMore && len(messages) > 0 {
 		lastMessage := messages[len(messages)-1]
-        c, err := encodeCursor(Cursor{CreatedAt: lastMessage.CreatedAt, ID: lastMessage.ID})
+		c, err := encodeCursor(Cursor{CreatedAt: lastMessage.CreatedAt, ID: lastMessage.ID})
 		if err != nil {
 			return nil, err
 		}
-        encodedNext = c
+		encodedNext = c
 		logger.Log.Info("Next cursor for pagination", "cursor", c)
 	}
 
-    return &MessageResponse{Messages: messages, NextCursor: encodedNext, HasMore: hasMore}, nil
+	return &MessageResponse{Messages: messages, NextCursor: encodedNext, HasMore: hasMore}, nil
 }

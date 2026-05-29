@@ -37,3 +37,7 @@ Why these matter:
 - Centralizing auth reduces duplication and avoids accidental double verification.
 - Explicit routes are simpler to reason about and easier to test.
 - The new test layers cover unit, repository, and full request flow separately.
+
+Recent (2026-05-29): Assistant-created summary added: `docs/github/chat_changes_from_assistant.md` — contains detailed notes about migrations, test DB wiring, and handler/repo updates.
+
+Recent (2026-05-29): `go test ./...` is now passing with the opt-in dockertest test DB path (`USE_DOCKER_TESTDB=1`) and unique per-run database names.

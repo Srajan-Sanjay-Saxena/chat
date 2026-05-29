@@ -1,11 +1,11 @@
 package db
 
-import(
+import (
+	"chat-v2/logger"
 	"context"
+	"github.com/jackc/pgx/v5/pgxpool"
 	"net/url"
 	"time"
-	"github.com/jackc/pgx/v5/pgxpool"
-	"chat-v2/logger"
 )
 
 var DB *pgxpool.Pool
@@ -37,7 +37,7 @@ func Connect(dbSource string) error {
 	return nil
 }
 
-// maskDSN returns a version of the DSN with the password redacted. 
+// maskDSN returns a version of the DSN with the password redacted.
 // It preserves the username, host, and path for logging purposes.
 func maskDSN(dsn string) string {
 	u, err := url.Parse(dsn)

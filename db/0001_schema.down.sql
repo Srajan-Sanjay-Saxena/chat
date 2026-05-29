@@ -1,4 +1,4 @@
-drop table if exists conversation_participants cascade;
-drop table if exists messages cascade;
-drop table if exists conversations cascade;
-drop table if exists users cascade;
+drop table if exists public.conversation_participants cascade;
+drop table if exists public.messages cascade;
+drop table if exists public.conversations cascade;
+drop table if exists public.users cascade;

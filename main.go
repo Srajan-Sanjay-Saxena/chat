@@ -59,13 +59,14 @@ func main() {
 
 	// Hub for managing WebSocket clients and broadcasting messages
 	hub := ws.NewHub()
-	go hub.Run() // Start the hub in a separate goroutine
+	go hub.Run()                                          // Start the hub in a separate goroutine
 	go hub.StartIdleSweeper(5*time.Minute, 1*time.Minute) // Start sweeper with 5 min idle timeout and 1 min check interval
 	logger.Log.Info("WebSocket hub started")
 
 	// Start the server
 	mux := http.NewServeMux()
 	authMiddleware := Middleware.JWTMiddleware(maker)
+	corsMiddleware := Middleware.NewCORSMiddleware(config.LoadCORSConfig())
 	mux.Handle("/health", handler.HealthCheckHandler())
 	// Authentication routes
 	mux.Handle("/signup", handler.SignUpHandler(repo))
@@ -91,9 +92,11 @@ func main() {
 	)))
 
 	// Start the HTTP server
+	// Wrap the mux with CORS middleware
+	handlerWithCORS := corsMiddleware(mux)
 	server := &http.Server{
 		Addr:    fmt.Sprintf(":%s", port),
-		Handler: mux,
+		Handler: handlerWithCORS,
 	}
 
 	go func() {
