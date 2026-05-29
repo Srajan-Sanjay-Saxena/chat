@@ -603,24 +603,6 @@ Failed due to concurrency issues
 tried using transaction in migrate func
 succeded
 
-
-TODO :- ADD async message persistence for better responsiveness and throughput
-
-Stage 1
-WebSocket → DB
-
-Stage 2
-WebSocket → DB + idempotency
-
-// Much Later
-
-Stage 3
-WebSocket → Redis queue → workers → DB
-
-Stage 4
-If traffic becomes huge:
-WebSocket → Kafka → workers → DB
-
 24 - 05 - 26
 
 Removed publisher logic from pump directly to an interface so that we can add other publishers without changing pumping file often.
@@ -640,6 +622,16 @@ Notes index (split into compact docs):
 - GitHub-safe notes: `docs/github/index.md`
 - Internal-only notes: `docs/internal/index.md`
 
+25-05-26
+
+Completed connection/session cleanup hardening and stale socket cleanup verification.
+
+- Added `ws/cleanup_test.go` to verify `client.close()` is idempotent and hub unregister closes `send` channel.
+- Added `ws/goleak_test.go` to verify no goroutine leaks on connect/close (uses `goleak` with pgx ignore).
+- Implemented `lastActive` tracking, `touch()` calls in pumps, and `Hub.StartIdleSweeper(idleTimeout, period)` to close idle clients.
+- Tests passed locally: `go test ./ws -run TestClientClose_IdempotentAndHubCleanup` and `go test ./ws -run TestNoGoroutineLeaksOnConnectClose`.
+
+Started designing UI wiring for subscribe/unsubscribe flows.
 
 **Connection vs Session**
 - **Connection:** a live WebSocket/TCP link between client and server (goroutine + socket). Short-lived; ends when socket closes.

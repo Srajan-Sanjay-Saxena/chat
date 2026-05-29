@@ -2,7 +2,7 @@
 
 Status: **In Progress**  
 Current Phase: **4 (Messaging system)**  
-Last Updated: May 23, 2026
+Last Updated: May 25, 2026
 
 ---
 
@@ -180,10 +180,10 @@ Last Updated: May 23, 2026
   - [ ] Test with large datasets
 
 - [ ] Task 6.3 — Connection Cleanup
-  - [ ] Detect dead WebSocket connections
+  - [x] Detect dead WebSocket connections
   - [ ] Remove stale user sessions
-  - [ ] Close goroutines safely
-  - [ ] Test cleanup logic
+  - [x] Close goroutines safely
+  - [x] Test cleanup logic
 
 ---
 
@@ -348,7 +348,7 @@ Last Updated: May 23, 2026
 4. Finish message persistence hardening (async insert, retry strategy, idempotency guard).
 5. Expose API-level pagination controls (`before`, `limit`) in message history endpoint.
 6. Complete group chat APIs (create group, join/leave semantics, member list endpoint).
-7. Add connection/session cleanup hardening and stale socket cleanup verification.
+7. Add connection/session cleanup hardening and stale socket cleanup verification — partial: idempotent `client.close()` and tests added (see `ws/cleanup_test.go`, `ws/goleak_test.go`).
 8. Add minimal frontend flow for demo (login, connect WS, send/receive, load history).
 9. Add deployment baseline (Dockerfile, compose, env docs, smoke run).
 10. Final polish (README, architecture diagram, demo script).

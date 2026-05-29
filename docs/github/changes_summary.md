@@ -1,5 +1,6 @@
 # Changes summary (compact)
 
+
 24-05-2026 — latest edits
 
 - Added message-history pagination controls in `handler.MessageHandler` (`before`, `limit`).
@@ -10,6 +11,14 @@
   - repository tests in `repository_test/conversation_participant_test.go`
   - end-to-end flow in `e2e_test.go`
 - Split notes into GitHub-safe and internal-only indexes under `docs/`.
+
+25-05-2026 — cleanup hardening + stale socket verification
+
+- Hardened WS connection cleanup path with idempotent `client.close()` and safe hub unregister.
+- Added `lastActive` tracking and `Hub.StartIdleSweeper(...)` to close idle connections.
+- Updated `readPump` / `writePump` to `touch()` activity on read, pong, write, and ping.
+- Added tests: `ws/cleanup_test.go` (idempotent close + hub cleanup) and `ws/goleak_test.go` (goleak-based goroutine leak detection).
+- Added `go.uber.org/goleak` as a test-only dependency.
 
 23-05-2026 — key edits
 
