@@ -18,13 +18,13 @@ func Connect(dbSource string) error {
 	defer cancel()
 
 	// Log a masked version of the DSN (avoid leaking credentials)
-	masked := maskDSN(dbSource)
-	logger.Log.Info("Attempting database connection", "db", masked)
+	// masked := maskDSN(dbSource)
+	logger.Log.Info("Attempting database connection")
 
 	// Attempt to connect to the database
 	pool, err := pgxpool.New(ctx, dbSource)
 	if err != nil {
-		logger.Log.Error("Failed to create database connection pool", "error", err, "db", masked)
+		logger.Log.Error("Failed to create database connection pool", "error", err)
 		return err
 	}
 	

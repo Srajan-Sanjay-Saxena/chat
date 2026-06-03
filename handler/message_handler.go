@@ -11,7 +11,7 @@ import (
 	"github.com/google/uuid"
 )
 
-func MessageHandler(repo *repository.Repository, maker *helper.JWTMaker) http.Handler {
+func MessageHandler(repo *repository.Repository) http.Handler {
 	if repo == nil {
 		logger.Log.Error("MessageHandler initialization failed: repository is nil")
 		panic("repository cannot be nil")
@@ -25,11 +25,10 @@ func MessageHandler(repo *repository.Repository, maker *helper.JWTMaker) http.Ha
 			return
 		}
 
-		// call JWTVerifier from helper to verify token and extract user ID
-		userID, err := helper.JWTVerifier(r, maker)
-		if err != nil {
-			logger.Log.Error("JWT verification failed in MessageHandler", "error", err)
-			writeJSONError(w, http.StatusUnauthorized, "Unauthorized: "+err.Error())
+		userID, ok := helper.GetUserFromContext(r.Context())
+		if !ok {
+			logger.Log.Error("Failed to get user from context in convCreateHandler")
+			writeJSONError(w, http.StatusUnauthorized, "Unauthorized: user not found in context")
 			return
 		}
 

@@ -5,7 +5,7 @@ import (
 	"context"
 	"errors"
 	"time"
-
+	"chat-v2/logger"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgconn"
 )
@@ -140,66 +140,96 @@ func (r *Repository) CreateConversationWithParticipants(ctx context.Context, con
 	return nil
 }
 
-func (r *Repository) CreateConversationWithParticipantsByUsernames(ctx context.Context, conversation *db.Conversation, participantUsernames []string) (err error) {
-	tx, err := r.DB.Begin(ctx)
-	if err != nil {
-		return err
-	}
-	defer func() {
-		if err != nil {
-			_ = tx.Rollback(ctx)
-		} else {
-			_ = tx.Commit(ctx)
-		}
-	}()
+func (r *Repository) CreateConversationWithParticipantsByUsernames( ctx context.Context, conversation *db.Conversation, participantUsernames []string,) (err error) {
 
-	if conversation.ID == uuid.Nil {
-		conversation.ID = uuid.New()
-	}
-	if conversation.CreatedAt.IsZero() {
-		conversation.CreatedAt = time.Now()
-	}
-	if conversation.Type == "" {
-		conversation.Type = "group"
-	}
+	logger.Log.Debug("Creating conversation with participants by usernames", "conversation_title", conversation.Title, "participant_usernames", participantUsernames)
 
-	query := `
-		insert into conversations (id, type, title, display_name, canonical_name, created_at)
-		values ($1, $2, $3, $4, $5, $6)
-		returning id
-	`
-	err = tx.QueryRow(ctx, query, conversation.ID, conversation.Type, conversation.Title, conversation.DisplayName, conversation.CanonicalName, conversation.CreatedAt).Scan(&conversation.ID)
-	if err != nil {
-		var pgErr *pgconn.PgError
-		if errors.As(err, &pgErr) && pgErr.Code == "23505" {
-			return ErrConversationExists
-		}
-		return err
-	}
+    tx, err := r.DB.Begin(ctx)
+    if err != nil {
+        return err
+    }
 
-	if len(participantUsernames) == 0 {
-		return nil
-	}
+    defer func() {
+        if err != nil {
+            _ = tx.Rollback(ctx)
+        } else {
+            _ = tx.Commit(ctx)
+        }
+    }()
 
-	insertQuery := `
-		with input_usernames as (
-			select distinct unnest($2::text[]) as username
-		)
-		insert into conversation_participants (conversation_id, user_id)
-		select $1, u.id
-		from users u
-		join input_usernames i on i.username = u.username
-	`
-	result, err := tx.Exec(ctx, insertQuery, conversation.ID, participantUsernames)
+    uniqueUsernames := uniqueStrings(participantUsernames)
+
+    // ---- Validate usernames exist ----
+
+	var missingCount int
+
+	err = tx.QueryRow(ctx, `
+		SELECT COUNT(*)
+		FROM unnest($1::text[]) input(username)
+		LEFT JOIN users u
+			ON u.username = input.username
+		WHERE u.id IS NULL
+	`, uniqueUsernames).Scan(&missingCount)
+
 	if err != nil {
 		return err
 	}
 
-	if result.RowsAffected() != int64(len(uniqueStrings(participantUsernames))) {
+	if missingCount > 0 {
 		return errors.New("one or more usernames were not found")
 	}
 
-	return nil
+    // ---- Create conversation ----
+
+    if conversation.ID == uuid.Nil {
+        conversation.ID = uuid.New()
+    }
+
+    if conversation.CreatedAt.IsZero() {
+        conversation.CreatedAt = time.Now()
+    }
+
+    if conversation.Type == "" {
+        conversation.Type = "group"
+    }
+
+    err = tx.QueryRow(ctx, `
+        INSERT INTO conversations
+            (id, type, title, display_name, canonical_name, created_at)
+        VALUES
+            ($1,$2,$3,$4,$5,$6)
+        RETURNING id
+    `,
+        conversation.ID,
+        conversation.Type,
+        conversation.Title,
+        conversation.DisplayName,
+        conversation.CanonicalName,
+        conversation.CreatedAt,
+    ).Scan(&conversation.ID)
+
+    if err != nil {
+        var pgErr *pgconn.PgError
+        if errors.As(err, &pgErr) && pgErr.Code == "23505" {
+            return ErrConversationExists
+        }
+        return err
+    }
+
+    // ---- Insert participants ----
+
+    _, err = tx.Exec(ctx, `
+        INSERT INTO conversation_participants (conversation_id, user_id)
+        SELECT $1, id
+        FROM users
+        WHERE username = ANY($2::text[])
+    `, conversation.ID, uniqueUsernames)
+
+    if err != nil {
+        return err
+    }
+
+    return nil
 }
 
 func (r *Repository) GetConversationParticipants(ctx context.Context, conversationID uuid.UUID) ([]uuid.UUID, error) {

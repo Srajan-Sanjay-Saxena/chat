@@ -9,8 +9,9 @@ import (
 	"net/http/httptest"
 	"testing"
 	"time"
-
+	"chat-v2/Middleware"
 	"github.com/google/uuid"
+	"chat-v2/logger"
 )
 
 type stubUserSearchRepo struct {
@@ -49,7 +50,7 @@ func TestValidateUserSearchQuery(t *testing.T) {
 
 func TestUserSearchHandler_ValidationAndRateLimit(t *testing.T) {
 	resetUserSearchLimiter()
-
+	logger.TestInit()
 	maker, err := helper.NewJWTMaker("abcdefghijklmnopqrstuvwxyz123456")
 	if err != nil {
 		t.Fatalf("new jwt maker: %v", err)
@@ -59,9 +60,11 @@ func TestUserSearchHandler_ValidationAndRateLimit(t *testing.T) {
 		t.Fatalf("create token: %v", err)
 	}
 
-	handler := UserSearchHandler(stubUserSearchRepo{
+	authMiddleware := Middleware.JWTMiddleware(maker)
+
+	handler := authMiddleware(UserSearchHandler(stubUserSearchRepo{
 		users: []*db.User{{ID: uuid.New(), Username: "alice"}},
-	}, maker)
+	}))
 
 	t.Run("rejects invalid query", func(t *testing.T) {
 		req := httptest.NewRequest(http.MethodGet, "/users/search?q=ali$ce", nil)

@@ -20,7 +20,12 @@ type userSearcher interface {
 
 // UserSearchHandler returns an endpoint to search users by username prefix.
 // GET /users/search?q=alice&limit=10
-func UserSearchHandler(repo userSearcher, maker *helper.JWTMaker) http.Handler {
+func UserSearchHandler(repo userSearcher) http.Handler {
+
+	if logger.Log == nil {
+		panic("logger is nil")
+	}
+
 	if repo == nil {
 		logger.Log.Error("UserSearchHandler initialization failed: repository is nil")
 		panic("repository cannot be nil")
@@ -37,11 +42,10 @@ func UserSearchHandler(repo userSearcher, maker *helper.JWTMaker) http.Handler {
 			return
 		}
 
-		// require auth
-		_, err := helper.JWTVerifier(r, maker)
-		if err != nil {
-			logger.Log.Error("JWT verification failed in UserSearchHandler", "error", err)
-			writeJSONError(w, http.StatusUnauthorized, "Unauthorized: "+err.Error())
+		_, ok := helper.GetUserFromContext(r.Context())
+		if !ok {
+			logger.Log.Error("Failed to get user from context in UserSearchHandler")
+			writeJSONError(w, http.StatusUnauthorized, "Unauthorized: user not found in context")
 			return
 		}
 
@@ -74,7 +78,7 @@ func UserSearchHandler(repo userSearcher, maker *helper.JWTMaker) http.Handler {
 
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
-		json.NewEncoder(w).Encode(map[string]interface{}{"users": users})
+		json.NewEncoder(w).Encode(map[string]any{"users": users})
 	})
 }
 

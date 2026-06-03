@@ -28,7 +28,7 @@ func main() {
 
 	// Initialize logger
 	logger.Init()
-
+	
 	// Load configuration
 	cfg := config.LoadConfig()
 	port := cfg.Port
@@ -74,17 +74,17 @@ func main() {
 	mux.Handle("/api/login", handler.LoginHandler(repo, maker))
 	logger.Log.Info("Authentication handlers registered under /signup and /login")
 	// Conversation routes
-	mux.Handle("/api/me", authMiddleware(handler.MeHandler(repo, maker)))
-	mux.Handle("/api/conversation/join", authMiddleware(handler.ConversationJoinHandler(repo, maker)))
-	mux.Handle("/api/conversation/leave", authMiddleware(handler.ConversationLeaveHandler(repo, maker)))
-	mux.Handle("/api/conversation/create", authMiddleware(handler.ConvCreateHandler(repo, maker)))
-	mux.Handle("/api/conversation/list", authMiddleware(handler.ConvListHandler(repo, maker)))
-	mux.Handle("/api/conversation/members", authMiddleware(handler.ConvMemberListHandler(repo, maker)))
-	mux.Handle("/api/conversation/messages", authMiddleware(handler.MessageHandler(repo, maker)))
+	mux.Handle("/api/me", authMiddleware(handler.MeHandler(repo)))
+	mux.Handle("/api/conversation/join", authMiddleware(handler.ConversationJoinHandler(repo)))
+	mux.Handle("/api/conversation/leave", authMiddleware(handler.ConversationLeaveHandler(repo)))
+	mux.Handle("/api/conversation/create", authMiddleware(handler.ConvCreateHandler(repo)))
+	mux.Handle("/api/conversation/list", authMiddleware(handler.ConvListHandler(repo)))
+	mux.Handle("/api/conversation/members", authMiddleware(handler.ConvMemberListHandler(repo)))
+	mux.Handle("/api/conversation/messages", authMiddleware(handler.MessageHandler(repo)))
 
 	logger.Log.Info("Conversation handlers registered under /conversation/*")
 	// WebSocket route
-	mux.Handle("/api/past_messages", authMiddleware(handler.MessageHandler(repo, maker)))
+	mux.Handle("/api/past_messages", authMiddleware(handler.MessageHandler(repo)))
 	logger.Log.Info("Message handler registered at /past_messages")
 	originAllowlist := config.ParseAllowedOrigins(cfg.WSAllowedOrigins)
 	mux.Handle("/api/ws", authMiddleware(ws.NewWebSocketHandler(repo, hub, originAllowlist,

@@ -44,7 +44,7 @@ func TestMain(m *testing.M) {
 	}
 	repoRoot := filepath.Dir(filepath.Dir(file))
 	_ = godotenv.Load(filepath.Join(repoRoot, ".env"))
-	logger.Init()
+	logger.TestInit()
 
 	dsn := os.Getenv("dbSource")
 	if dsn == "" {
@@ -53,11 +53,10 @@ func TestMain(m *testing.M) {
 	if err := db.Connect2(dsn, schema); err != nil {
 		panic("failed to connect to database: " + err.Error())
 	}
-	_, err := db.DB.Exec(
+	if _, err := db.DB.Exec(
 		context.Background(),
 		fmt.Sprintf(`CREATE SCHEMA IF NOT EXISTS "%s"`, schema),
-	)
-	if err != nil {
+	); err != nil {
 		panic("failed to create test schema: " + err.Error())
 	}
 
@@ -82,6 +81,15 @@ func TestMain(m *testing.M) {
 		suiteLockConn.Release()
 	}
 	_ = os.Unsetenv("CHAT_TEST_SUITE_DB_LOCK_HELD")
+
+	_, err = db.DB.Exec(
+		context.Background(),
+		fmt.Sprintf(`DROP SCHEMA IF EXISTS "%s" CASCADE`, schema),
+	)
+	if err != nil {
+		logger.Log.Error("drop schema", "err", err)
+	}
+
 	os.Exit(exitCode)
 }
 

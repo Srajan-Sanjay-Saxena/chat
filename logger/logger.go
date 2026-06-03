@@ -7,8 +7,6 @@ import (
 
 var Log *slog.Logger
 
-var TestLog *slog.Logger
-
 func Init() {
 
 	file, err := os.OpenFile("app.log", os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
@@ -28,7 +26,7 @@ func Init() {
 }
 
 func TestInit() {
-	TestLog = slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{
+	Log = slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{
 		Level: slog.LevelDebug,
 	}))
 }

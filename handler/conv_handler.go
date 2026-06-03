@@ -15,25 +15,25 @@ import (
 	"github.com/google/uuid"
 )
 
-func ConversationJoinHandler(repo *repository.Repository, maker *helper.JWTMaker) http.Handler {
+func ConversationJoinHandler(repo *repository.Repository) http.Handler {
 	if repo == nil {
 		logger.Log.Error("ConversationJoinHandler initialization failed: repository is nil")
 		panic("repository cannot be nil")
 	}
 
-	return conversationMembershipHandler(repo, maker, "join")
+	return conversationMembershipHandler(repo, "join")
 }
 
-func ConversationLeaveHandler(repo *repository.Repository, maker *helper.JWTMaker) http.Handler {
+func ConversationLeaveHandler(repo *repository.Repository) http.Handler {
 	if repo == nil {
 		logger.Log.Error("ConversationLeaveHandler initialization failed: repository is nil")
 		panic("repository cannot be nil")
 	}
 
-	return conversationMembershipHandler(repo, maker, "leave")
+	return conversationMembershipHandler(repo, "leave")
 }
 
-func conversationMembershipHandler(repo *repository.Repository, maker *helper.JWTMaker, operation string) http.Handler {
+func conversationMembershipHandler(repo *repository.Repository, operation string) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// Method check
 		if r.Method != http.MethodPost {
@@ -42,11 +42,10 @@ func conversationMembershipHandler(repo *repository.Repository, maker *helper.JW
 			return
 		}
 
-		// verify JWT and extract user ID
-		userID, err := helper.JWTVerifier(r, maker)
-		if err != nil {
-			logger.Log.Error("JWT verification failed in ConversationMembershipHandler", "error", err, "operation", operation)
-			writeJSONError(w, http.StatusUnauthorized, "Unauthorized: "+err.Error())
+		userID, ok := helper.GetUserFromContext(r.Context())
+		if !ok {
+			logger.Log.Error("Failed to get user from context in ConversationMembershipHandler", "operation", operation)
+			writeJSONError(w, http.StatusUnauthorized, "Unauthorized: user not found in context")
 			return
 		}
 
@@ -94,7 +93,7 @@ func conversationMembershipHandler(repo *repository.Repository, maker *helper.JW
 	})
 }
 
-func ConvListHandler(repo *repository.Repository, maker *helper.JWTMaker) http.Handler {
+func ConvListHandler(repo *repository.Repository) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// Method check
 		if r.Method != http.MethodGet {
@@ -103,11 +102,10 @@ func ConvListHandler(repo *repository.Repository, maker *helper.JWTMaker) http.H
 			return
 		}
 
-		// verify JWT and extract user ID
-		userID, err := helper.JWTVerifier(r, maker)
-		if err != nil {
-			logger.Log.Error("JWT verification failed in convListHandler", "error", err)
-			writeJSONError(w, http.StatusUnauthorized, "Unauthorized: "+err.Error())
+		userID, ok := helper.GetUserFromContext(r.Context())
+		if !ok {
+			logger.Log.Error("Failed to get user from context in convListHandler")
+			writeJSONError(w, http.StatusUnauthorized, "Unauthorized: user not found in context")
 			return
 		}
 
@@ -128,7 +126,7 @@ func ConvListHandler(repo *repository.Repository, maker *helper.JWTMaker) http.H
 	})
 }
 
-func ConvCreateHandler(repo *repository.Repository, maker *helper.JWTMaker) http.Handler {
+func ConvCreateHandler(repo *repository.Repository) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// Method check
 		if r.Method != http.MethodPost {
@@ -137,11 +135,10 @@ func ConvCreateHandler(repo *repository.Repository, maker *helper.JWTMaker) http
 			return
 		}
 
-		// verify JWT and extract user ID
-		userID, err := helper.JWTVerifier(r, maker)
-		if err != nil {
-			logger.Log.Error("JWT verification failed in convCreateHandler", "error", err)
-			writeJSONError(w, http.StatusUnauthorized, "Unauthorized: "+err.Error())
+		userID, ok := helper.GetUserFromContext(r.Context())
+		if !ok {
+			logger.Log.Error("Failed to get user from context in convCreateHandler")
+			writeJSONError(w, http.StatusUnauthorized, "Unauthorized: user not found in context")
 			return
 		}
 
@@ -271,7 +268,7 @@ func ConvCreateHandler(repo *repository.Repository, maker *helper.JWTMaker) http
 	})
 }
 
-func ConvMemberListHandler(repo *repository.Repository, maker *helper.JWTMaker) http.Handler {
+func ConvMemberListHandler(repo *repository.Repository) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// Method check
 		if r.Method != http.MethodGet {
@@ -280,11 +277,10 @@ func ConvMemberListHandler(repo *repository.Repository, maker *helper.JWTMaker) 
 			return
 		}
 
-		// call JWTVerifier from helper to verify token and extract user ID
-		userID, err := helper.JWTVerifier(r, maker)
-		if err != nil {
-			logger.Log.Error("JWT verification failed in convMemberListHandler", "error", err)
-			writeJSONError(w, http.StatusUnauthorized, "Unauthorized: "+err.Error())
+		userID, ok := helper.GetUserFromContext(r.Context())
+		if !ok {
+			logger.Log.Error("Failed to get user from context in convMemberListHandler")
+			writeJSONError(w, http.StatusUnauthorized, "Unauthorized: user not found in context")
 			return
 		}
 

@@ -33,7 +33,7 @@ func SignUpHandler(repo *repository.Repository) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// Method check
 		if r.Method != http.MethodPost {
-			logger.Log.Error("Invalid method for SignUpHandler", "method", r.Method)
+			logger.Log.Debug("Invalid method for SignUpHandler", "method", r.Method)
 			writeJSONError(w, http.StatusMethodNotAllowed, "Method not allowed")
 			return
 		}
@@ -41,32 +41,32 @@ func SignUpHandler(repo *repository.Repository) http.Handler {
 		// Parse request body
 		var req SignUpRequest
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-			logger.Log.Error("Failed to decode SignUpRequest", "error", err)
+			logger.Log.Debug("Failed to decode SignUpRequest", "error", err)
 			writeJSONError(w, http.StatusBadRequest, "Invalid request payload")
 			return
 		}
 
 		// Validate input
 		if req.Username == "" || req.Password == "" || req.Email == "" {
-			logger.Log.Error("Missing fields in SignUpRequest", "username", req.Username, "email", req.Email)
+			logger.Log.Debug("Missing fields in SignUpRequest", "username", req.Username, "email", req.Email)
 			writeJSONError(w, http.StatusBadRequest, "Username, password and email are required")
 			return
 		}
 
 		if helper.ValidateEmail(req.Email) == false {
-			logger.Log.Error("Invalid email format in SignUpRequest", "email", req.Email)
+			logger.Log.Debug("Invalid email format in SignUpRequest", "email", req.Email)
 			writeJSONError(w, http.StatusBadRequest, "Invalid email format")
 			return
 		}
 
 		if helper.ValidatePassword(req.Password) == false {
-			logger.Log.Error("Weak password in SignUpRequest", "username", req.Username)
+			logger.Log.Debug("Weak password in SignUpRequest", "username", req.Username)
 			writeJSONError(w, http.StatusBadRequest, "Password does not meet strength requirements")
 			return
 		}
 
 		if helper.ValidateUsername(req.Username) == false {
-			logger.Log.Error("Invalid username in SignUpRequest", "username", req.Username)
+			logger.Log.Debug("Invalid username in SignUpRequest", "username", req.Username)
 			writeJSONError(w, http.StatusBadRequest, "Username does not meet requirements")
 			return
 		}
@@ -92,7 +92,7 @@ func SignUpHandler(repo *repository.Repository) http.Handler {
 			// Check if the error is due to duplicate username
 
 			if errors.Is(err, repository.ErrUserExists) {
-				logger.Log.Error("Username already exists", "username", req.Username)
+				logger.Log.Debug("Username already exists", "username", req.Username)
 				writeJSONError(w, http.StatusConflict, "Username or email already exists")
 				return
 			}
@@ -183,7 +183,7 @@ func LoginHandler(repo *repository.Repository, maker *helper.JWTMaker) http.Hand
 	})
 }
 
-func MeHandler(repo *repository.Repository, maker *helper.JWTMaker) http.Handler {
+func MeHandler(repo *repository.Repository) http.Handler {
 	if repo == nil {
 		logger.Log.Error("MeHandler initialization failed: repository is nil")
 		panic("repository cannot be nil")
@@ -197,11 +197,10 @@ func MeHandler(repo *repository.Repository, maker *helper.JWTMaker) http.Handler
 			return
 		}
 
-		// call JWTVerifier from helper to verify token and extract user ID
-		userID, err := helper.JWTVerifier(r, maker)
-		if err != nil {
-			logger.Log.Error("JWT verification failed in MeHandler", "error", err)
-			writeJSONError(w, http.StatusUnauthorized, "Unauthorized: "+err.Error())
+		userID, ok := helper.GetUserFromContext(r.Context())
+		if !ok {
+			logger.Log.Error("Failed to get user from context in convCreateHandler")
+			writeJSONError(w, http.StatusUnauthorized, "Unauthorized: user not found in context")
 			return
 		}
 		

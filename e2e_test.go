@@ -51,7 +51,7 @@ func TestMain(m *testing.M) {
 	repoRoot := filepath.Dir(file)
 	_ = godotenv.Load(filepath.Join(repoRoot, ".env"))
 	_ = godotenv.Load(filepath.Join(repoRoot, "..", ".env"))
-	logger.Init()
+	logger.TestInit()
 
 	logger.Log.Info("Starting e2e test suite setup")
 	dsn := os.Getenv("dbSource")
@@ -89,6 +89,15 @@ func TestMain(m *testing.M) {
 		suiteLockConn.Release()
 	}
 	_ = os.Unsetenv("CHAT_TEST_SUITE_DB_LOCK_HELD")
+
+	_, err = db.DB.Exec(
+		context.Background(),
+		fmt.Sprintf(`DROP SCHEMA IF EXISTS "%s" CASCADE`, schema),
+	)
+	if err != nil {
+		logger.Log.Error("drop schema", "err", err)
+	}
+
 	os.Exit(exitCode)
 }
 
@@ -116,12 +125,12 @@ func TestChatFlow_E2E(t *testing.T) {
 	mux := http.NewServeMux()
 	mux.Handle("/signup", handler.SignUpHandler(testRepo))
 	mux.Handle("/login", handler.LoginHandler(testRepo, maker))
-	mux.Handle("/conversation/create", authMiddleware(handler.ConvCreateHandler(testRepo, maker)))
-	mux.Handle("/conversation/list", authMiddleware(handler.ConvListHandler(testRepo, maker)))
-	mux.Handle("/conversation/join", authMiddleware(handler.ConversationJoinHandler(testRepo, maker)))
-	mux.Handle("/conversation/leave", authMiddleware(handler.ConversationLeaveHandler(testRepo, maker)))
-	mux.Handle("/conversation/members", authMiddleware(handler.ConvMemberListHandler(testRepo, maker)))
-	mux.Handle("/conversation/messages", authMiddleware(handler.MessageHandler(testRepo, maker)))
+	mux.Handle("/conversation/create", authMiddleware(handler.ConvCreateHandler(testRepo)))
+	mux.Handle("/conversation/list", authMiddleware(handler.ConvListHandler(testRepo)))
+	mux.Handle("/conversation/join", authMiddleware(handler.ConversationJoinHandler(testRepo)))
+	mux.Handle("/conversation/leave", authMiddleware(handler.ConversationLeaveHandler(testRepo)))
+	mux.Handle("/conversation/members", authMiddleware(handler.ConvMemberListHandler(testRepo)))
+	mux.Handle("/conversation/messages", authMiddleware(handler.MessageHandler(testRepo)))
 	server := httptest.NewServer(mux)
 	defer server.Close()
 
@@ -253,7 +262,7 @@ func TestE2E_CreatePrivateByUsernames(t *testing.T) {
 	mux := http.NewServeMux()
 	mux.Handle("/signup", handler.SignUpHandler(testRepo))
 	mux.Handle("/login", handler.LoginHandler(testRepo, maker))
-	mux.Handle("/conversation/create", authMiddleware(handler.ConvCreateHandler(testRepo, maker)))
+	mux.Handle("/conversation/create", authMiddleware(handler.ConvCreateHandler(testRepo)))
 	server := httptest.NewServer(mux)
 	defer server.Close()
 

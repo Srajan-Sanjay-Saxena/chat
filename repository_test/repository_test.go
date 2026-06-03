@@ -39,7 +39,7 @@ func TestMain(m *testing.M) {
 	repoRoot := filepath.Dir(file)
 	_ = godotenv.Load(filepath.Join(repoRoot, ".env"))
 	_ = godotenv.Load(filepath.Join(repoRoot, "..", ".env"))
-	logger.Init()
+	logger.TestInit()
 
 	logger.Log.Info("Starting repository test suite setup")
 	dsn := os.Getenv("dbSource")
@@ -77,6 +77,15 @@ func TestMain(m *testing.M) {
 		suiteLockConn.Release()
 	}
 	_ = os.Unsetenv("CHAT_TEST_SUITE_DB_LOCK_HELD")
+
+	_, err = db.DB.Exec(
+		context.Background(),
+		fmt.Sprintf(`DROP SCHEMA IF EXISTS "%s" CASCADE`, schema),
+	)
+	if err != nil {
+		logger.Log.Error("drop schema", "err", err)
+	}
+
 	os.Exit(exitCode)
 }
 
