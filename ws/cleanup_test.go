@@ -1,7 +1,6 @@
 package ws
 
 import (
-	"context"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -46,10 +45,8 @@ func TestClientClose_IdempotentAndHubCleanup(t *testing.T) {
 		clientCh <- c
 
 		// start pumps
-		ctx, cancel := context.WithCancel(context.Background())
 		go func() {
-			defer cancel()
-			c.readPump(ctx, service.NewMessageService(nil, NewLocalPublisher(hub), nil))
+			c.readPump(service.NewMessageService(nil, NewLocalPublisher(hub), nil))
 		}()
 		go c.writePump()
 	}))

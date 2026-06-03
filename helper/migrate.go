@@ -13,7 +13,10 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
+// Lock key dedicated to schema reset operations.
+// Kept separate from package-level suite lock keys to avoid lock recursion.
 const schemaResetLockKey int64 = 842019
+const skipSchemaResetLockEnv = "CHAT_TEST_SUITE_DB_LOCK_HELD"
 
 func schemaSQLPath(filename string) string {
 	_, file, _, ok := runtime.Caller(0)
@@ -114,58 +117,102 @@ func Rollback() error {
 }
 
 func ResetSchema() error {
-	return withSchemaResetLock(context.Background(), func(ctx context.Context, conn *pgxpool.Conn) error {
-		// Use a generous timeout for schema operations
-		ctx, cancel := context.WithTimeout(ctx, 15*time.Minute)
-		defer cancel()
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	defer cancel()
 
-		statements := []string{
-			`drop table if exists public.conversation_participants cascade`,
-			`drop table if exists public.messages cascade`,
-			`drop table if exists public.conversations cascade`,
-			`drop table if exists public.users cascade`,
-			`create extension if not exists "uuid-ossp"`,
-			`create table if not exists public.users (
-			id uuid primary key default uuid_generate_v4(),
-			username text unique not null,
-			password_hash text not null,
-			email text unique not null,
-			created_at timestamptz not null default now()
-		)`,
-			`create table if not exists public.conversations (
-			id uuid primary key default uuid_generate_v4(),
-			type text not null default 'group',
-			title text,
-			display_name text,
-			canonical_name text,
-			created_at timestamptz not null default now()
-		)`,
-			`create unique index if not exists idx_conversations_canonical_private on public.conversations(canonical_name) where (type = 'private')`,
-			`create table if not exists public.conversation_participants (
-			id uuid primary key default uuid_generate_v4(),
-			conversation_id uuid not null references public.conversations(id) on delete cascade,
-			user_id uuid not null references public.users(id) on delete cascade,
-			created_at timestamptz not null default now(),
-			unique (conversation_id, user_id)
-		)`,
-			`create table if not exists public.messages (
-			id uuid primary key default uuid_generate_v4(),
-			conversation_id uuid not null references public.conversations(id) on delete cascade,
-			sender_id uuid not null references public.users(id) on delete cascade,
-			content text not null,
-			created_at timestamptz not null default now()
-		)`,
-			`create index if not exists idx_convpart_conv on public.conversation_participants(conversation_id)`,
-			`create index if not exists idx_convpart_user on public.conversation_participants(user_id)`,
-			`create index if not exists idx_messages_conv_created on public.messages(conversation_id, created_at desc)`,
+	conn, err := db.GetDB().Acquire(ctx)
+	if err != nil {
+		return err
+	}
+	defer conn.Release()
+
+	tx, err := conn.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer func() {
+		_ = tx.Rollback(context.Background())
+	}()
+
+	if os.Getenv(skipSchemaResetLockEnv) != "1" {
+		if _, err := tx.Exec(ctx, `select pg_advisory_xact_lock($1)`, schemaResetLockKey); err != nil {
+			return fmt.Errorf("reset schema lock: %w", err)
 		}
+	}
 
-		for _, statement := range statements {
-			if _, err := conn.Exec(ctx, statement); err != nil {
-				return fmt.Errorf("reset schema: %w", err)
-			}
+	var currentSchema string
+	if err := tx.QueryRow(ctx, `select current_schema()`).Scan(&currentSchema); err != nil {
+		return err
+	}
+
+	_, err = tx.Exec(ctx,
+		fmt.Sprintf(`DROP SCHEMA IF EXISTS "%s" CASCADE`, currentSchema))
+	if err != nil {
+		return err
+	}
+
+	_, err = tx.Exec(ctx,
+		fmt.Sprintf(`CREATE SCHEMA "%s"`, currentSchema))
+	if err != nil {
+		return err
+	}
+
+	_, err = tx.Exec(ctx,
+		fmt.Sprintf(`SET search_path TO "%s",public`, currentSchema))
+	if err != nil {
+		return err
+	}
+
+	statements := []string{
+		`drop table if exists conversation_participants cascade`,
+		`drop table if exists messages cascade`,
+		`drop table if exists conversations cascade`,
+		`drop table if exists users cascade`,
+		`create extension if not exists "uuid-ossp"`,
+		`create table if not exists users (
+		id uuid primary key default uuid_generate_v4(),
+		username text unique not null,
+		password_hash text not null,
+		email text unique not null,
+		created_at timestamptz not null default now()
+	)`,
+		`create table if not exists conversations (
+		id uuid primary key default uuid_generate_v4(),
+		type text not null default 'group',
+		title text,
+		display_name text,
+		canonical_name text,
+		created_at timestamptz not null default now()
+	)`,
+		`create unique index if not exists idx_conversations_canonical_private on conversations(canonical_name) where (type = 'private')`,
+		`create table if not exists conversation_participants (
+		id uuid primary key default uuid_generate_v4(),
+		conversation_id uuid not null references conversations(id) on delete cascade,
+		user_id uuid not null references users(id) on delete cascade,
+		created_at timestamptz not null default now(),
+		unique (conversation_id, user_id)
+	)`,
+		`create table if not exists messages (
+		id uuid primary key default uuid_generate_v4(),
+		conversation_id uuid not null references conversations(id) on delete cascade,
+		sender_id uuid not null references users(id) on delete cascade,
+		content text not null,
+		created_at timestamptz not null default now()
+	)`,
+		`create index if not exists idx_convpart_conv on conversation_participants(conversation_id)`,
+		`create index if not exists idx_convpart_user on conversation_participants(user_id)`,
+		`create index if not exists idx_messages_conv_created on messages(conversation_id, created_at desc)`,
+	}
+
+	for _, statement := range statements {
+		if _, err := tx.Exec(ctx, statement); err != nil {
+			return fmt.Errorf("reset schema: %w", err)
 		}
+	}
 
-		return nil
-	})
+	if err := tx.Commit(ctx); err != nil {
+		return fmt.Errorf("reset schema commit: %w", err)
+	}
+
+	return nil
 }

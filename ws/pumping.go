@@ -31,7 +31,7 @@ const pongWait = 60 * time.Second
 const maxMsgSize = 1024 * 4 // 4KB maximum message size
 const pingPeriod = (pongWait * 9) / 10
 
-func (client *client) readPump(ctx context.Context, messageService *service.MessageService) {
+func (client *client) readPump(messageService *service.MessageService) {
 
 	// Adding deadline to prevent hanging connections
 	client.conn.SetReadLimit(maxMsgSize)
@@ -76,8 +76,7 @@ func (client *client) readPump(ctx context.Context, messageService *service.Mess
 		case "message":
 			// Create message in the database and publish to conversation channel using message service
 			// Use a context with timeout for the message creation to avoid hanging if the database is slow
-			msgctx, cancel := context.WithTimeout(ctx, 5*time.Second)
-			defer cancel()
+			msgctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 
 			outMsg, err := messageService.CreateMessage(msgctx, client.userID, inMsg.ConversationID, inMsg.Content)
 			if err != nil {
@@ -86,11 +85,12 @@ func (client *client) readPump(ctx context.Context, messageService *service.Mess
 				} else {
 					logger.Log.Error("error creating message", "error", err)
 				}
+				cancel()
 				continue
 			}
 
 			logger.Log.Info("message received from client", "user_id", client.userID, "conversation_id", outMsg.ConversationID, "content_length", len(outMsg.Content))
-
+			cancel() // Cancel the message creation context as soon as we're done with it
 		case "subscribe":
 			client.hub.subscribe <- subscription{
 				client:         client,

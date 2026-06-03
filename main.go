@@ -22,6 +22,7 @@ import (
 )
 
 func main() {
+	fmt.Println("Starting chat-v2 server...")
 	// Load .env file
 	godotenv.Load()
 
@@ -69,23 +70,24 @@ func main() {
 	corsMiddleware := Middleware.NewCORSMiddleware(config.LoadCORSConfig())
 	mux.Handle("/health", handler.HealthCheckHandler())
 	// Authentication routes
-	mux.Handle("/signup", handler.SignUpHandler(repo))
-	mux.Handle("/login", handler.LoginHandler(repo, maker))
+	mux.Handle("/api/signup", handler.SignUpHandler(repo))
+	mux.Handle("/api/login", handler.LoginHandler(repo, maker))
 	logger.Log.Info("Authentication handlers registered under /signup and /login")
 	// Conversation routes
-	mux.Handle("/conversation/join", authMiddleware(handler.ConversationJoinHandler(repo, maker)))
-	mux.Handle("/conversation/leave", authMiddleware(handler.ConversationLeaveHandler(repo, maker)))
-	mux.Handle("/conversation/create", authMiddleware(handler.ConvCreateHandler(repo, maker)))
-	mux.Handle("/conversation/list", authMiddleware(handler.ConvListHandler(repo, maker)))
-	mux.Handle("/conversation/members", authMiddleware(handler.ConvMemberListHandler(repo, maker)))
-	mux.Handle("/conversation/messages", authMiddleware(handler.MessageHandler(repo, maker)))
+	mux.Handle("/api/me", authMiddleware(handler.MeHandler(repo, maker)))
+	mux.Handle("/api/conversation/join", authMiddleware(handler.ConversationJoinHandler(repo, maker)))
+	mux.Handle("/api/conversation/leave", authMiddleware(handler.ConversationLeaveHandler(repo, maker)))
+	mux.Handle("/api/conversation/create", authMiddleware(handler.ConvCreateHandler(repo, maker)))
+	mux.Handle("/api/conversation/list", authMiddleware(handler.ConvListHandler(repo, maker)))
+	mux.Handle("/api/conversation/members", authMiddleware(handler.ConvMemberListHandler(repo, maker)))
+	mux.Handle("/api/conversation/messages", authMiddleware(handler.MessageHandler(repo, maker)))
 
 	logger.Log.Info("Conversation handlers registered under /conversation/*")
 	// WebSocket route
-	mux.Handle("/past_messages", authMiddleware(handler.MessageHandler(repo, maker)))
+	mux.Handle("/api/past_messages", authMiddleware(handler.MessageHandler(repo, maker)))
 	logger.Log.Info("Message handler registered at /past_messages")
 	originAllowlist := config.ParseAllowedOrigins(cfg.WSAllowedOrigins)
-	mux.Handle("/ws", authMiddleware(ws.NewWebSocketHandler(repo, maker, hub, originAllowlist,
+	mux.Handle("/api/ws", authMiddleware(ws.NewWebSocketHandler(repo, hub, originAllowlist,
 		func(ctx context.Context, conversationID, userID uuid.UUID) (bool, error) {
 			return repo.IsParticipant(ctx, conversationID, userID)
 		},

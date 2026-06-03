@@ -10,7 +10,8 @@ import (
 	"os"
 	"testing"
 	"time"
-
+	"runtime"
+	"path/filepath"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/joho/godotenv"
@@ -29,43 +30,53 @@ func resetTestDatabase(t *testing.T) {
 }
 
 func TestMain(m *testing.M) {
-	// Load .env file
-	godotenv.Load("../.env")
 
-	// Load logger
+	schema := fmt.Sprintf("test_%d", time.Now().UnixNano())
+	_, file, _, ok := runtime.Caller(0)
+	if !ok {
+		panic("unable to resolve test file path")
+	}
+	repoRoot := filepath.Dir(file)
+	_ = godotenv.Load(filepath.Join(repoRoot, ".env"))
+	_ = godotenv.Load(filepath.Join(repoRoot, "..", ".env"))
 	logger.Init()
 
-	// Connect to the database
+	logger.Log.Info("Starting repository test suite setup")
 	dsn := os.Getenv("dbSource")
-	if err := db.Connect(dsn); err != nil {
-		panic("Failed to connect to database: " + err.Error())
+	if dsn == "" {
+		panic("dbSource is not set")
 	}
-
-	if err := db.DB.Ping(context.Background()); err != nil {
-		panic("Failed to ping database: " + err.Error())
+	if err := db.Connect2(dsn, schema); err != nil {
+		panic("failed to connect to database: " + err.Error())
+	}
+	_, err := db.DB.Exec(
+		context.Background(),
+		fmt.Sprintf(`CREATE SCHEMA IF NOT EXISTS "%s"`, schema),
+	)
+	if err != nil {
+		panic("failed to create test schema: " + err.Error())
 	}
 
 	lockConn, err := db.DB.Acquire(context.Background())
 	if err != nil {
-		panic("Failed to acquire test DB lock connection: " + err.Error())
+		panic("failed to acquire test DB lock connection: " + err.Error())
 	}
 	suiteLockConn = lockConn
 	if _, err := suiteLockConn.Exec(context.Background(), `select pg_advisory_lock($1)`, suiteLockKey); err != nil {
-		panic("Failed to acquire test DB advisory lock: " + err.Error())
+		panic("failed to acquire test DB advisory lock: " + err.Error())
 	}
+	_ = os.Setenv("CHAT_TEST_SUITE_DB_LOCK_HELD", "1")
 
 	if err := helper.ResetSchema(); err != nil {
-		panic("Failed to reset database schema: " + err.Error())
+		panic("failed to reset database schema: " + err.Error())
 	}
-
 	repo = repository.NewRepository(db.DB)
-	// Run tests
-
 	exitCode := m.Run()
 	if suiteLockConn != nil {
 		_, _ = suiteLockConn.Exec(context.Background(), `select pg_advisory_unlock($1)`, suiteLockKey)
 		suiteLockConn.Release()
 	}
+	_ = os.Unsetenv("CHAT_TEST_SUITE_DB_LOCK_HELD")
 	os.Exit(exitCode)
 }
 

@@ -19,7 +19,7 @@ import (
 	"strings"
 	"testing"
 	"time"
-
+	"fmt"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/joho/godotenv"
@@ -42,6 +42,8 @@ type conversationListResponse struct {
 }
 
 func TestMain(m *testing.M) {
+
+	schema := fmt.Sprintf("test_%d", time.Now().UnixNano())
 	_, file, _, ok := runtime.Caller(0)
 	if !ok {
 		panic("unable to resolve test file path")
@@ -51,28 +53,20 @@ func TestMain(m *testing.M) {
 	_ = godotenv.Load(filepath.Join(repoRoot, "..", ".env"))
 	logger.Init()
 
-	// Optionally use an ephemeral Postgres container for tests.
-	if os.Getenv("USE_DOCKER_TESTDB") == "1" {
-		_, cleanup, err := helper.StartTestDB()
-		if err != nil {
-			panic("failed to start test DB container: " + err.Error())
-		}
-		defer func() {
-			if cleanup != nil {
-				_ = cleanup()
-			}
-		}()
-	} else {
-		dsn := os.Getenv("dbSource")
-		if dsn == "" {
-			panic("dbSource is not set")
-		}
-		if err := db.Connect(dsn); err != nil {
-			panic("failed to connect to database: " + err.Error())
-		}
+	logger.Log.Info("Starting e2e test suite setup")
+	dsn := os.Getenv("dbSource")
+	if dsn == "" {
+		panic("dbSource is not set")
 	}
-	if err := db.DB.Ping(context.Background()); err != nil {
-		panic("failed to ping database: " + err.Error())
+	if err := db.Connect2(dsn, schema); err != nil {
+		panic("failed to connect to database: " + err.Error())
+	}
+	_, err := db.DB.Exec(
+		context.Background(),
+		fmt.Sprintf(`CREATE SCHEMA IF NOT EXISTS "%s"`, schema),
+	)
+	if err != nil {
+		panic("failed to create test schema: " + err.Error())
 	}
 
 	lockConn, err := db.DB.Acquire(context.Background())
@@ -83,6 +77,7 @@ func TestMain(m *testing.M) {
 	if _, err := suiteLockConn.Exec(context.Background(), `select pg_advisory_lock($1)`, suiteLockKey); err != nil {
 		panic("failed to acquire test DB advisory lock: " + err.Error())
 	}
+	_ = os.Setenv("CHAT_TEST_SUITE_DB_LOCK_HELD", "1")
 
 	if err := helper.ResetSchema(); err != nil {
 		panic("failed to reset database schema: " + err.Error())
@@ -93,6 +88,7 @@ func TestMain(m *testing.M) {
 		_, _ = suiteLockConn.Exec(context.Background(), `select pg_advisory_unlock($1)`, suiteLockKey)
 		suiteLockConn.Release()
 	}
+	_ = os.Unsetenv("CHAT_TEST_SUITE_DB_LOCK_HELD")
 	os.Exit(exitCode)
 }
 

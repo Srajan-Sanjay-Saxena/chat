@@ -21,12 +21,13 @@ func Connect(dbSource string) error {
 	masked := maskDSN(dbSource)
 	logger.Log.Info("Attempting database connection", "db", masked)
 
-	// Connect to the database
+	// Attempt to connect to the database
 	pool, err := pgxpool.New(ctx, dbSource)
 	if err != nil {
+		logger.Log.Error("Failed to create database connection pool", "error", err, "db", masked)
 		return err
 	}
-
+	
 	// Ping the database to verify the connection
 	if err := pool.Ping(ctx); err != nil {
 		return err
@@ -35,6 +36,30 @@ func Connect(dbSource string) error {
 	// Assign the pool to the global variable
 	DB = pool
 	return nil
+}
+
+func Connect2(dbSource string, schema string) error {
+    ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+    defer cancel()
+
+    cfg, err := pgxpool.ParseConfig(dbSource)
+    if err != nil {
+        return err
+    }
+
+    cfg.ConnConfig.RuntimeParams["search_path"] = schema + ",public"
+
+    pool, err := pgxpool.NewWithConfig(ctx, cfg)
+    if err != nil {
+        return err
+    }
+
+    if err := pool.Ping(ctx); err != nil {
+        return err
+    }
+
+    DB = pool
+    return nil
 }
 
 // maskDSN returns a version of the DSN with the password redacted.

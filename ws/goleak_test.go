@@ -1,7 +1,6 @@
 package ws
 
 import (
-	"context"
 	"github.com/google/uuid"
 	"github.com/gorilla/websocket"
 	"go.uber.org/goleak"
@@ -46,10 +45,8 @@ func TestNoGoroutineLeaksOnConnectClose(t *testing.T) {
 		}
 		hub.register <- c
 
-		ctx, cancel := context.WithCancel(context.Background())
 		go func() {
-			defer cancel()
-			c.readPump(ctx, service.NewMessageService(nil, NewLocalPublisher(hub), nil))
+			c.readPump(service.NewMessageService(nil, NewLocalPublisher(hub), nil))
 		}()
 		go c.writePump()
 	}))

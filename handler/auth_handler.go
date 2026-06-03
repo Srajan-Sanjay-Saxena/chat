@@ -182,3 +182,46 @@ func LoginHandler(repo *repository.Repository, maker *helper.JWTMaker) http.Hand
 		})
 	})
 }
+
+func MeHandler(repo *repository.Repository, maker *helper.JWTMaker) http.Handler {
+	if repo == nil {
+		logger.Log.Error("MeHandler initialization failed: repository is nil")
+		panic("repository cannot be nil")
+	}
+
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Method check
+		if r.Method != http.MethodGet {
+			logger.Log.Error("Invalid method for MeHandler", "method", r.Method)
+			writeJSONError(w, http.StatusMethodNotAllowed, "Method not allowed")
+			return
+		}
+
+		// call JWTVerifier from helper to verify token and extract user ID
+		userID, err := helper.JWTVerifier(r, maker)
+		if err != nil {
+			logger.Log.Error("JWT verification failed in MeHandler", "error", err)
+			writeJSONError(w, http.StatusUnauthorized, "Unauthorized: "+err.Error())
+			return
+		}
+		
+		logger.Log.Info("User ID extracted from token successfully", "user_id", userID)
+		user,err := repo.GetUserByID(r.Context(), userID)
+		if err != nil {
+			logger.Log.Error("Failed to get user by ID in MeHandler", "user_id", userID, "error", err)
+			writeJSONError(w, http.StatusInternalServerError, "Failed to get user information")
+			return
+		}
+
+		logger.Log.Info("User information retrieved successfully", "user_id", userID)
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"status":   "User information retrieved successfully",
+			"user_id":  user.ID.String(),
+			"username": user.Username,
+			"email":    user.Email,
+			"created_at": user.CreatedAt.Format(time.RFC3339),
+		})
+	})
+}
