@@ -12,6 +12,9 @@ type Config struct {
 	DbSource         string
 	JWTSecret        string
 	RedisAddr        string
+	RedisUsername    string
+	RedisPassword    string
+	RedisDB          string
 	WSAllowedOrigins string
 }
 
@@ -47,6 +50,9 @@ func LoadConfig() *Config {
 		DbSource:         os.Getenv("dbSource"),
 		JWTSecret:        os.Getenv("JWT_SECRET"),
 		RedisAddr:        os.Getenv("REDIS_ADDR"),
+		RedisUsername:    os.Getenv("REDIS_USERNAME"),
+		RedisPassword:    os.Getenv("REDIS_PASSWORD"),
+		RedisDB:          os.Getenv("REDIS_DB"),
 		WSAllowedOrigins: os.Getenv("WS_ALLOWED_ORIGINS"),
 	}
 }

@@ -16,8 +16,17 @@ type Cursor struct {
 	ID        uuid.UUID
 }
 
+type message struct {
+	ID             uuid.UUID `json:"id"`
+	SenderUsername string    `json:"sender_username"`
+	SenderID       uuid.UUID `json:"sender_id"`
+	ConversationID uuid.UUID `json:"conversation_id"`
+	Content        string    `json:"content"`
+	CreatedAt      time.Time `json:"created_at"`
+}
+
 type MessageResponse struct {
-	Messages   []*db.Message
+	Messages   []*message
 	NextCursor string
 	HasMore    bool
 }
@@ -47,12 +56,14 @@ func decodeCursor(s string) (*Cursor, error) {
 }
 
 func (r *Repository) CreateMessage(ctx context.Context, message *db.Message) error {
-
+	start := time.Now()
 	// Writing SQL query to insert a new message into the database
 	query := `insert into messages (id, conversation_id, sender_id, content, created_at) values ($1, $2, $3, $4, $5) returning id, created_at`
 
 	// Executing the query and scanning the returned id into the message struct
-	return r.DB.QueryRow(ctx, query, message.ID, message.ConversationID, message.SenderID, message.Content, message.CreatedAt).Scan(&message.ID, &message.CreatedAt)
+	err := r.DB.QueryRow(ctx, query, message.ID, message.ConversationID, message.SenderID, message.Content, message.CreatedAt).Scan(&message.ID, &message.CreatedAt)
+	logger.Log.Debug("CreateMessage query executed", "message_id", message.ID, "conversation_id", message.ConversationID, "sender_id", message.SenderID, "duration_ms", time.Since(start).Milliseconds())
+	return err
 }
 
 func (r *Repository) GetMessageByID(ctx context.Context, id uuid.UUID) (*db.Message, error) {
@@ -78,7 +89,12 @@ func (r *Repository) GetMessagesByConversationID(ctx context.Context, conversati
 	// Build query with positional placeholders safely
 	args := []interface{}{}
 	idx := 1
-	query := fmt.Sprintf("select id, conversation_id, sender_id, content, created_at from messages where conversation_id = $%d", idx)
+	query := `
+		select m.id, m.conversation_id, m.content, m.created_at, u.username, m.sender_id
+		from messages m
+		join users u on m.sender_id = u.id
+		where m.conversation_id = $1
+	`
 	args = append(args, conversationID)
 	idx++
 
@@ -88,7 +104,7 @@ func (r *Repository) GetMessagesByConversationID(ctx context.Context, conversati
 			return nil, err
 		}
 		// use two placeholders for created_at and id
-		query += fmt.Sprintf(" and (created_at < $%d or (created_at = $%d and id < $%d))", idx, idx, idx+1)
+		query += fmt.Sprintf(" and (m.created_at < $%d or (m.created_at = $%d and m.id < $%d))", idx, idx, idx+1)
 		args = append(args, cursor.CreatedAt, cursor.ID)
 		idx += 2
 	}
@@ -104,13 +120,17 @@ func (r *Repository) GetMessagesByConversationID(ctx context.Context, conversati
 	}
 	defer rows.Close()
 
-	var messages []*db.Message
+	var messages []*message
 	for rows.Next() {
-		var message db.Message
-		if err := rows.Scan(&message.ID, &message.ConversationID, &message.SenderID, &message.Content, &message.CreatedAt); err != nil {
+		var msg message
+		if err := rows.Scan(&msg.ID, &msg.ConversationID, &msg.Content, &msg.CreatedAt, &msg.SenderUsername, &msg.SenderID); err != nil {
 			return nil, err
 		}
-		messages = append(messages, &message)
+		messages = append(messages, &msg)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, err
 	}
 
 	hasMore := false

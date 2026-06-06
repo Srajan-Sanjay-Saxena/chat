@@ -18,7 +18,7 @@ import (
 func TestNoGoroutineLeaksOnConnectClose(t *testing.T) {
 	defer goleak.VerifyNone(t, goleak.IgnoreTopFunction("github.com/jackc/pgx/v5/pgxpool.(*Pool).backgroundHealthCheck"))
 
-	hub := NewHub()
+	hub := NewHub(nil)
 	go hub.Run()
 	defer func() {
 		hub.Stop()

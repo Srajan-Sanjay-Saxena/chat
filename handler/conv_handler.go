@@ -120,11 +120,38 @@ func ConvListHandler(repo *repository.Repository) http.Handler {
 		// Return conversations as JSON response (includes canonical_name)
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
-		json.NewEncoder(w).Encode(map[string]interface{}{
+		json.NewEncoder(w).Encode(map[string]any{
 			"conversations": conversations,
 		})
 	})
 }
+
+// Conv create handler expects a JSON body with the following format:
+//
+//	{
+//	  "type": "group" or "private", // optional, defaults to "group"
+//	  "title": "Conversation Title", // required for group conversations
+//	  "display_name": "Optional Display Name",
+//	  "participant_usernames": ["user1", "user2"] // list of usernames to include in the conversation; the creator is always included
+//	   you can inclde the creator's username but not required since the creator is always added as a participant
+//	   for private conversations, exactly 2 participants must be specified (including the creator)
+//	   for pvt convs canonical_name is derived from the two usernames in lexicographical order to ensure uniqueness
+//     and allow for easy lookup of existing private conversations between the same users.
+// 	   If a private conversation with the same participants already exists, it will be returned instead of creating a new one.
+//	}
+// And it returns response with the following format on success:
+//
+//	{
+//	  "conversation": { 
+// 	    "id": "conversation-uuid",
+// 	    "type": "group" or "private",
+// 	    "title": "Conversation Title",
+// 	    "display_name": "Display Name",
+// 	    "canonical_name": "user1:user2", // only for private conversations, derived from participant usernames in lex order
+// 	    "created_at": "timestamp"
+// 	  },
+//	  "created": true // indicates whether a new conversation was created or an existing one was returned (only applicable for private conversations)
+//	}
 
 func ConvCreateHandler(repo *repository.Repository) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

@@ -20,6 +20,17 @@ type userSearcher interface {
 
 // UserSearchHandler returns an endpoint to search users by username prefix.
 // GET /users/search?q=alice&limit=10
+// It will return a JSON response with the following structure:
+// {
+//     "users": [
+//         {
+//             "id": "uuid-of-user",
+//             "username": "user's username"
+//         },
+//         ...
+//     ]
+// }
+// The handler validates the request, checks if the user is authenticated, and then performs a search in the database using the repository layer. It also includes rate limiting to prevent abuse of the search functionality.
 func UserSearchHandler(repo userSearcher) http.Handler {
 
 	if logger.Log == nil {

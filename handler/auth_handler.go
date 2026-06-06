@@ -171,12 +171,14 @@ func LoginHandler(repo *repository.Repository, maker *helper.JWTMaker) http.Hand
 			return
 		}
 
-		logger.Log.Info("User logged in successfully", "username", req.Username)
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
 		json.NewEncoder(w).Encode(map[string]string{
 			"status":     "Login successful",
 			"user_id":    user.ID.String(),
+			"username":   user.Username,
+			"email":      user.Email,
+			"created_at": user.CreatedAt.Format(time.RFC3339),
 			"token":      token,
 			"expires_at": now.Add(time.Hour * 24).Format(time.RFC3339),
 		})
@@ -192,19 +194,18 @@ func MeHandler(repo *repository.Repository) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// Method check
 		if r.Method != http.MethodGet {
-			logger.Log.Error("Invalid method for MeHandler", "method", r.Method)
+			logger.Log.Debug("Invalid method for MeHandler", "method", r.Method)
 			writeJSONError(w, http.StatusMethodNotAllowed, "Method not allowed")
 			return
 		}
 
 		userID, ok := helper.GetUserFromContext(r.Context())
 		if !ok {
-			logger.Log.Error("Failed to get user from context in convCreateHandler")
+			logger.Log.Debug("Failed to get user from context in convCreateHandler")
 			writeJSONError(w, http.StatusUnauthorized, "Unauthorized: user not found in context")
 			return
 		}
 		
-		logger.Log.Info("User ID extracted from token successfully", "user_id", userID)
 		user,err := repo.GetUserByID(r.Context(), userID)
 		if err != nil {
 			logger.Log.Error("Failed to get user by ID in MeHandler", "user_id", userID, "error", err)
@@ -212,15 +213,14 @@ func MeHandler(repo *repository.Repository) http.Handler {
 			return
 		}
 
-		logger.Log.Info("User information retrieved successfully", "user_id", userID)
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
-		json.NewEncoder(w).Encode(map[string]interface{}{
-			"status":   "User information retrieved successfully",
-			"user_id":  user.ID.String(),
-			"username": user.Username,
-			"email":    user.Email,
+		json.NewEncoder(w).Encode(map[string]string{
+			"user_id":    user.ID.String(),
+			"username":   user.Username,
+			"email":      user.Email,
 			"created_at": user.CreatedAt.Format(time.RFC3339),
 		})
+		
 	})
 }

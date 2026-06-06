@@ -2,6 +2,8 @@ package repository
 
 import (
 	"context"
+	"time"
+	"chat-v2/logger"
 	"github.com/google/uuid"
 )
 
@@ -49,8 +51,42 @@ func (r *Repository) GetParticipantsByConversationID(ctx context.Context, conver
 }
 
 func (r *Repository) IsParticipant(ctx context.Context, conversationID, userID uuid.UUID) (bool, error) {
+	start := time.Now()
 	var exists bool
 	query := `select exists(select 1 from conversation_participants where conversation_id=$1 and user_id=$2)`
 	err := r.DB.QueryRow(ctx, query, conversationID, userID).Scan(&exists)
+	logger.Log.Debug("IsParticipant query executed", "conversation_id", conversationID, "user_id", userID, "exists", exists, "duration_ms", time.Since(start).Milliseconds())
 	return exists, err
+}
+
+func (r *Repository) GetFriends(ctx context.Context, userID uuid.UUID) ([]uuid.UUID, error) {
+	query := `
+	    SELECT 
+		u.id, 
+		u.username, 
+		u.email, 
+		u.created_at
+		FROM conversation_participant cp1
+		JOIN conversation c ON cp1.conversation_id = c.id
+		JOIN conversation_participant cp2 ON c.id = cp2.conversation_id
+		JOIN users u ON cp2.user_id = u.id
+		WHERE cp1.user_id = $1            
+		AND c.type = 'private'          
+		AND cp2.user_id != $1;          
+	`
+	rows, err := r.DB.Query(ctx, query, userID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var friends []uuid.UUID
+	for rows.Next() {
+		var friendID uuid.UUID
+		if err := rows.Scan(&friendID); err != nil {
+			return nil, err
+		}
+		friends = append(friends, friendID)
+	}
+	return friends, nil
 }

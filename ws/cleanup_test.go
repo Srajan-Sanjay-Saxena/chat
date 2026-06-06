@@ -17,7 +17,7 @@ import (
 // multiple times is safe (idempotent) and that the hub removes the client and
 // closes the send channel.
 func TestClientClose_IdempotentAndHubCleanup(t *testing.T) {
-	hub := NewHub()
+	hub := NewHub(nil)
 	go hub.Run()
 	defer func() {
 		hub.Stop()

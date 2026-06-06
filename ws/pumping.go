@@ -89,21 +89,21 @@ func (client *client) readPump(messageService *service.MessageService) {
 				continue
 			}
 
-			logger.Log.Info("message received from client", "user_id", client.userID, "conversation_id", outMsg.ConversationID, "content_length", len(outMsg.Content))
+			logger.Log.Debug("message received from client", "user_id", client.userID, "conversation_id", outMsg.ConversationID, "content_length", len(outMsg.Content))
 			cancel() // Cancel the message creation context as soon as we're done with it
 		case "subscribe":
 			client.hub.subscribe <- subscription{
 				client:         client,
 				conversationID: inMsg.ConversationID,
 			}
-			logger.Log.Info("Client subscribed to conversation", "user_id", client.userID, "conversation_id", inMsg.ConversationID)
+			logger.Log.Debug("Client subscribed to conversation", "user_id", client.userID, "conversation_id", inMsg.ConversationID)
 
 		case "unsubscribe":
 			client.hub.unsubscribe <- subscription{
 				client:         client,
 				conversationID: inMsg.ConversationID,
 			}
-			logger.Log.Info("Client unsubscribed from conversation", "user_id", client.userID, "conversation_id", inMsg.ConversationID)
+			logger.Log.Debug("Client unsubscribed from conversation", "user_id", client.userID, "conversation_id", inMsg.ConversationID)
 		}
 
 	}
@@ -127,7 +127,7 @@ func (client *client) writePump() {
 		case message, ok := <-client.send:
 			if !ok {
 				// Channel closed, close WebSocket connection
-				logger.Log.Info("send channel closed, closing connection", "user_id", client.userID)
+				logger.Log.Debug("send channel closed, closing connection", "user_id", client.userID)
 				client.close()
 				return
 			}
@@ -140,7 +140,7 @@ func (client *client) writePump() {
 			// mark active on successful write
 			client.touch()
 			// Log the message sent to the client
-			logger.Log.Info("message sent to client", "user_id", client.userID, "message_length", len(message))
+			logger.Log.Debug("message sent to client", "user_id", client.userID, "message_length", len(message))
 
 		case <-ticker.C:
 			// Send a ping message to the client
@@ -150,7 +150,7 @@ func (client *client) writePump() {
 				return
 			}
 			client.touch()
-			logger.Log.Info("ping sent to client", "user_id", client.userID)
+			logger.Log.Debug("ping sent to client", "user_id", client.userID)
 		}
 	}
 }

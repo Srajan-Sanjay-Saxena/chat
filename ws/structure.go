@@ -6,7 +6,7 @@ import (
 	"encoding/json"
 	"sync"
 	"time"
-
+	"chat-v2/db/redis"
 	"github.com/google/uuid"
 	"github.com/gorilla/websocket"
 )
@@ -35,6 +35,7 @@ type Hub struct {
 	stop        chan struct{}         // closed to signal hub to stop and clean up
 	done        chan struct{}         // closed when hub has fully stopped and cleaned up
 	once        sync.Once             // ensures Stop can only be called once
+	presenceStore *redis.PresenceStore
 }
 
 type broadcastMessage struct {
@@ -49,7 +50,7 @@ type subscription struct {
 
 const participantCheckTimeout = 2 * time.Second
 
-func NewHub() *Hub {
+func NewHub(p *redis.PresenceStore) *Hub {
 	return &Hub{
 		clients:     make(map[*client]bool),
 		register:    make(chan *client),
@@ -59,6 +60,7 @@ func NewHub() *Hub {
 		broadcast:   make(chan broadcastMessage),
 		stop:        make(chan struct{}),
 		done:        make(chan struct{}),
+		presenceStore: p,
 	}
 }
 
@@ -130,10 +132,17 @@ func (h *Hub) Run() {
 
 	for {
 		select {
-		// Handle registration of new clients
 		case client := <-h.register:
 			h.clients[client] = true
-			logger.Log.Info("New client registered", "user_id", client.userID)
+			logger.Log.Debug("New client registered", "user_id", client.userID)
+			//Perform presence mark in redis presence store
+			if h.presenceStore != nil {
+				ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+				defer cancel()
+				if err := h.presenceStore.UpdatePresence(ctx, client.userID.String()); err != nil {
+					logger.Log.Error("Failed to update presence on client register", "user_id", client.userID, "error", err)
+				}
+			}
 
 		// Handle unregistration of clients
 		case client := <-h.unregister:
@@ -141,7 +150,7 @@ func (h *Hub) Run() {
 				delete(h.clients, client)
 				close(client.send)
 			}
-			logger.Log.Info("Client unregistered", "user_id", client.userID)
+			logger.Log.Debug("Client unregistered", "user_id", client.userID)
 
 		// Handle broadcasting messages to subscribed clients
 		case message := <-h.broadcast:
@@ -155,7 +164,7 @@ func (h *Hub) Run() {
 					}
 				}
 			}
-			logger.Log.Info("Message broadcasted", "conversation_id", message.conversationID, "message_length", len(message.message))
+			logger.Log.Debug("Message broadcasted", "conversation_id", message.conversationID, "message_length", len(message.message))
 
 		// Handle subscription to conversation channels
 		case sub := <-h.subscribe:
@@ -190,6 +199,9 @@ func (h *Hub) Run() {
 				logger.Log.Warn("Client not participant for subscribe", "user_id", sub.client.userID, "conversation_id", sub.conversationID)
 				continue
 			}
+
+			//TODO: Get presence info for conversation members and include in subscription ack
+			
 
 			sub.client.subscribedConversations[sub.conversationID] = true
 			ack := map[string]string{"type": "subscribed", "conversation_id": sub.conversationID.String()}

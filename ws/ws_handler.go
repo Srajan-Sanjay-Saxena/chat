@@ -18,9 +18,31 @@ type wsHandler struct {
 	messageService   *service.MessageService
 	upgrader       	websocket.Upgrader
 	hub             *Hub
+	maker 		  *helper.JWTMaker
 	isParticipant   func(context.Context, uuid.UUID, uuid.UUID) (bool, error)
 }
 
+// wsHandler expects requests like this:
+// GET /ws
+// It does not take any query parameters, but it expects the user ID to be available in the request context (set by authentication middleware).
+// And using this handler client side can connect to the WebSocket server and receive real-time updates for the specified conversation.
+// After the connection is established, the client can send messages in the following format:
+// {	
+//		"type": "message",
+//     "conversation_id": "uuid-of-conversation",
+//     "content": "message content"
+// }
+// The server will validate the message, check if the user is a participant in the conversation, and then broadcast the message to all connected clients subscribed to that conversation.
+// Client can request for the subscription to a conversation by sending a message like this:
+// {
+//     "type": "subscribe",
+//     "conversation_id": "uuid-of-conversation"
+// }
+// And to unsubscribe:
+// {
+//     "type": "unsubscribe",
+//     "conversation_id": "uuid-of-conversation"
+// }
 
 func (h *wsHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	// Method check
@@ -30,12 +52,22 @@ func (h *wsHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	userID, ok := helper.GetUserFromContext(r.Context())
-	if !ok {
-		logger.Log.Warn("WebSocket connection attempt without user ID in context")
-		http.Error(w, "Unauthorized: user ID not found in context", http.StatusUnauthorized)
+	token := r.URL.Query().Get("token")
+	if token == "" {
+		logger.Log.Warn("WebSocket connection attempt without token")
+		http.Error(w, "Unauthorized: token is required", http.StatusUnauthorized)
 		return
 	}
+	
+  	claims, err := h.maker.VerifyToken(token)
+	if err != nil {
+		logger.Log.Warn("WebSocket connection attempt with invalid token", "error", err)
+		http.Error(w, "Unauthorized: invalid token", http.StatusUnauthorized)
+		return
+	}
+
+	userID := claims.ID
+	
 
 	conn, err := h.upgrader.Upgrade(w, r, nil)
 	if err != nil {
@@ -50,12 +82,14 @@ func (h *wsHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 func NewWebSocketHandler(
     repo *repository.Repository,
     hub *Hub,
+	maker *helper.JWTMaker,
     allowedOrigins []string,
     isParticipant func(context.Context, uuid.UUID, uuid.UUID) (bool, error),
 ) http.Handler {
 
     return &wsHandler{
         hub:            hub,
+		maker: maker,
         isParticipant:  isParticipant,
         messageService: service.NewMessageService(
             repo,

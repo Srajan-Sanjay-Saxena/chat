@@ -10,7 +10,7 @@ import (
 )
 
 func TestConversationParticipantRepo(t *testing.T) {
-	resetTestDatabase(t)
+	// resetTestDatabase(t)
 
 	suffix := uuid.NewString()
 	user := &db.User{

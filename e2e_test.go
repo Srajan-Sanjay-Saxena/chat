@@ -3,6 +3,7 @@ package main_test
 import (
 	"chat-v2/Middleware"
 	"chat-v2/db"
+	"chat-v2/db/redis"
 	"chat-v2/handler"
 	"chat-v2/helper"
 	"chat-v2/logger"
@@ -27,9 +28,9 @@ import (
 
 var testRepo *repository.Repository
 var suiteLockConn *pgxpool.Conn
-
+var DB *pgxpool.Pool
+var presenceStore *redis.PresenceStore
 const suiteLockKey int64 = 842020
-
 type authResponse struct {
 	Status    string `json:"status"`
 	UserID    string `json:"user_id"`
@@ -58,10 +59,11 @@ func TestMain(m *testing.M) {
 	if dsn == "" {
 		panic("dbSource is not set")
 	}
-	if err := db.Connect2(dsn, schema); err != nil {
+	DB, err := db.Connect2(dsn, schema)
+	if err != nil {
 		panic("failed to connect to database: " + err.Error())
 	}
-	_, err := db.DB.Exec(
+	_, err = DB.Exec(
 		context.Background(),
 		fmt.Sprintf(`CREATE SCHEMA IF NOT EXISTS "%s"`, schema),
 	)
@@ -69,7 +71,7 @@ func TestMain(m *testing.M) {
 		panic("failed to create test schema: " + err.Error())
 	}
 
-	lockConn, err := db.DB.Acquire(context.Background())
+	lockConn, err := DB.Acquire(context.Background())
 	if err != nil {
 		panic("failed to acquire test DB lock connection: " + err.Error())
 	}
@@ -79,10 +81,25 @@ func TestMain(m *testing.M) {
 	}
 	_ = os.Setenv("CHAT_TEST_SUITE_DB_LOCK_HELD", "1")
 
-	if err := helper.ResetSchema(); err != nil {
+	if err := helper.ResetSchema(DB); err != nil {
 		panic("failed to reset database schema: " + err.Error())
 	}
-	testRepo = repository.NewRepository(db.DB)
+	testRepo = repository.NewRepository(DB)
+
+	// redis connection and presence store creation
+	redisAddr := os.Getenv("REDIS_ADDR")
+	redisPassword := os.Getenv("REDIS_PASSWORD")
+	redisUsername := os.Getenv("REDIS_USERNAME")
+	redisDB := 0
+
+	redisClient , err := redis.Connect(redisAddr, redisUsername, redisPassword, redisDB)
+	if err != nil {
+		panic("failed to connect to Redis: " + err.Error())
+	}
+	defer redisClient.Close()
+
+	presenceStore = redis.NewPresenceStore(redisClient)
+
 	exitCode := m.Run()
 	if suiteLockConn != nil {
 		_, _ = suiteLockConn.Exec(context.Background(), `select pg_advisory_unlock($1)`, suiteLockKey)
@@ -90,31 +107,30 @@ func TestMain(m *testing.M) {
 	}
 	_ = os.Unsetenv("CHAT_TEST_SUITE_DB_LOCK_HELD")
 
-	_, err = db.DB.Exec(
+	_, err = DB.Exec(
 		context.Background(),
 		fmt.Sprintf(`DROP SCHEMA IF EXISTS "%s" CASCADE`, schema),
 	)
 	if err != nil {
 		logger.Log.Error("drop schema", "err", err)
 	}
-
 	os.Exit(exitCode)
 }
 
 func TestChatFlow_E2E(t *testing.T) {
 	logger.Log.Info("Starting end-to-end test")
-	reset := func() {
-		if err := helper.ResetSchema(); err != nil {
-			t.Fatalf("reset schema: %v", err)
-		}
-	}
-	reset()
+	// reset := func() {
+	// 	if err := helper.ResetSchema(DB); err != nil {
+	// 		t.Fatalf("reset schema: %v", err)
+	// 	}
+	// }
+	// reset()
 
 	maker, err := helper.NewJWTMaker("abcdefghijklmnopqrstuvwxyz123456")
 	if err != nil {
 		t.Fatalf("new jwt maker: %v", err)
 	}
-	hub := ws.NewHub()
+	hub := ws.NewHub(presenceStore)
 	defer func() {
 		hub.Stop()
 		<-hub.Done()
@@ -240,18 +256,18 @@ func TestChatFlow_E2E(t *testing.T) {
 }
 
 func TestE2E_CreatePrivateByUsernames(t *testing.T) {
-	reset := func() {
-		if err := helper.ResetSchema(); err != nil {
-			t.Fatalf("reset schema: %v", err)
-		}
-	}
-	reset()
+	// reset := func() {
+	// 	if err := helper.ResetSchema(DB); err != nil {
+	// 		t.Fatalf("reset schema: %v", err)
+	// 	}
+	// }
+	// reset()
 
 	maker, err := helper.NewJWTMaker("abcdefghijklmnopqrstuvwxyz123456")
 	if err != nil {
 		t.Fatalf("new jwt maker: %v", err)
 	}
-	hub := ws.NewHub()
+	hub := ws.NewHub(presenceStore)
 	defer func() {
 		hub.Stop()
 		<-hub.Done()

@@ -1,7 +1,6 @@
 package ws_test
 
 import (
-	"chat-v2/Middleware"
 	"chat-v2/config"
 	"chat-v2/db"
 	"chat-v2/helper"
@@ -26,12 +25,12 @@ import (
 
 var testRepo *repository.Repository
 var suiteLockConn *pgxpool.Conn
-
+var DB db.Db
 const suiteLockKey int64 = 842020
 
 func resetTestDatabase(t *testing.T) {
 	t.Helper()
-	if err := helper.ResetSchema(); err != nil {
+	if err := helper.ResetSchema(DB); err != nil {
 		t.Fatalf("failed to reset database schema: %v", err)
 	}
 }
@@ -50,17 +49,19 @@ func TestMain(m *testing.M) {
 	if dsn == "" {
 		panic("dbSource is not set")
 	}
-	if err := db.Connect2(dsn, schema); err != nil {
+	DB, err := db.Connect2(dsn, schema)
+	if err != nil {
 		panic("failed to connect to database: " + err.Error())
 	}
-	if _, err := db.DB.Exec(
+	_, err = DB.Exec(
 		context.Background(),
 		fmt.Sprintf(`CREATE SCHEMA IF NOT EXISTS "%s"`, schema),
-	); err != nil {
+	)
+	if err != nil {
 		panic("failed to create test schema: " + err.Error())
 	}
 
-	lockConn, err := db.DB.Acquire(context.Background())
+	lockConn, err := DB.Acquire(context.Background())
 	if err != nil {
 		panic("failed to acquire test DB lock connection: " + err.Error())
 	}
@@ -70,11 +71,11 @@ func TestMain(m *testing.M) {
 	}
 	_ = os.Setenv("CHAT_TEST_SUITE_DB_LOCK_HELD", "1")
 
-	if err := helper.ResetSchema(); err != nil {
+	if err := helper.ResetSchema(DB); err != nil {
 		panic("failed to reset database schema: " + err.Error())
 	}
 
-	testRepo = repository.NewRepository(db.DB)
+	testRepo = repository.NewRepository(DB)
 	exitCode := m.Run()
 	if suiteLockConn != nil {
 		_, _ = suiteLockConn.Exec(context.Background(), `select pg_advisory_unlock($1)`, suiteLockKey)
@@ -82,7 +83,7 @@ func TestMain(m *testing.M) {
 	}
 	_ = os.Unsetenv("CHAT_TEST_SUITE_DB_LOCK_HELD")
 
-	_, err = db.DB.Exec(
+	_, err = DB.Exec(
 		context.Background(),
 		fmt.Sprintf(`DROP SCHEMA IF EXISTS "%s" CASCADE`, schema),
 	)
@@ -109,7 +110,7 @@ type wsOutMessage struct {
 }
 
 func TestWebSocketIntegration_PublishSubscribePersist(t *testing.T) {
-	resetTestDatabase(t)
+	// resetTestDatabase(t)
 
 	userID := uuid.New()
 	conversationID := uuid.New()
@@ -147,7 +148,7 @@ func TestWebSocketIntegration_PublishSubscribePersist(t *testing.T) {
 		t.Fatalf("create token: %v", err)
 	}
 
-	hub := ws.NewHub()
+	hub := ws.NewHub(nil)
 	go hub.Run()
 	defer func() {
 		hub.Stop()
@@ -155,17 +156,15 @@ func TestWebSocketIntegration_PublishSubscribePersist(t *testing.T) {
 	}()
 
 	mux := http.NewServeMux()
-	authMiddleware := Middleware.JWTMiddleware(maker)
-	mux.Handle("/ws", authMiddleware(ws.NewWebSocketHandler(testRepo, hub, config.ParseAllowedOrigins(allowedOrigin), testRepo.IsParticipant)))
+	mux.Handle("/ws", ws.NewWebSocketHandler(testRepo, hub, maker, config.ParseAllowedOrigins(allowedOrigin), testRepo.IsParticipant))
 	server := httptest.NewServer(mux)
 	defer server.Close()
 
 	dialer := websocket.Dialer{}
 	header := http.Header{}
-	header.Set("Authorization", "Bearer "+token)
 	header.Set("Origin", allowedOrigin)
 
-	wsURL := "ws" + strings.TrimPrefix(server.URL, "http") + "/ws"
+	wsURL := "ws" + strings.TrimPrefix(server.URL, "http") + "/ws" + "?token=" + token
 	conn, resp, err := dialer.Dial(wsURL, header)
 	if err != nil {
 		if resp != nil {

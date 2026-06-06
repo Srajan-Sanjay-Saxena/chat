@@ -9,7 +9,7 @@ import (
 	"runtime"
 	"strings"
 	"time"
-
+	"chat-v2/logger"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -88,12 +88,6 @@ func Migrate() error {
 		if err := executeSQLFileIfExists(ctx, conn, "0001_schema.up.sql"); err != nil {
 			return err
 		}
-		if err := executeSQLFileIfExists(ctx, conn, "0002_add_conversation_type.up.sql"); err != nil {
-			return err
-		}
-		if err := executeSQLFileIfExists(ctx, conn, "0003_add_canonical_name.up.sql"); err != nil {
-			return err
-		}
 		return nil
 	})
 }
@@ -103,12 +97,6 @@ func Rollback() error {
 	defer cancel()
 
 	return withSchemaResetLock(ctx, func(ctx context.Context, conn *pgxpool.Conn) error {
-		if err := executeSQLFileIfExists(ctx, conn, "0003_add_canonical_name.down.sql"); err != nil {
-			return err
-		}
-		if err := executeSQLFileIfExists(ctx, conn, "0002_add_conversation_type.down.sql"); err != nil {
-			return err
-		}
 		if err := executeSQLFileIfExists(ctx, conn, "0001_schema.down.sql"); err != nil {
 			return err
 		}
@@ -116,11 +104,11 @@ func Rollback() error {
 	})
 }
 
-func ResetSchema() error {
+func ResetSchema(DB *pgxpool.Pool) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
 
-	conn, err := db.GetDB().Acquire(ctx)
+	conn, err := DB.Acquire(ctx)
 	if err != nil {
 		return err
 	}
@@ -144,7 +132,10 @@ func ResetSchema() error {
 	if err := tx.QueryRow(ctx, `select current_schema()`).Scan(&currentSchema); err != nil {
 		return err
 	}
-
+	logger.Log.Info(
+		"ResetSchema",
+		"schema", currentSchema,
+	)
 	_, err = tx.Exec(ctx,
 		fmt.Sprintf(`DROP SCHEMA IF EXISTS "%s" CASCADE`, currentSchema))
 	if err != nil {

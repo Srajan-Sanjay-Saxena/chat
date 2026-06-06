@@ -10,8 +10,11 @@ create table if not exists public.users (
 
 create table if not exists public.conversations (
     id uuid primary key default uuid_generate_v4(),
-    title text unique not null,
-    created_at timestamptz not null default now()
+    title text unique,
+    created_at timestamptz not null default now(),
+    type text not null default 'group',
+    display_name text,
+    canonical_name text unique
 );
 
 create table if not exists public.conversation_participants (
@@ -30,6 +33,19 @@ create table if not exists public.messages (
     created_at timestamptz not null default now()
 );
 
-create index if not exists idx_convpart_conv on public.conversation_participants(conversation_id);
-create index if not exists idx_convpart_user on public.conversation_participants(user_id);
-create index if not exists idx_messages_conv_created on public.messages(conversation_id, created_at desc);
+-- Conversation participant lookups
+CREATE UNIQUE INDEX IF NOT EXISTS idx_convpart_conv_user
+ON public.conversation_participants (conversation_id, user_id);
+
+-- Optional: keep only if you frequently query by user_id alone
+CREATE INDEX IF NOT EXISTS idx_convpart_user
+ON public.conversation_participants (user_id);
+
+-- Message pagination
+CREATE INDEX IF NOT EXISTS idx_messages_conv_created
+ON public.messages (conversation_id, created_at DESC, id DESC);
+
+-- Private conversation uniqueness
+CREATE UNIQUE INDEX IF NOT EXISTS idx_conversations_canonical_private
+ON public.conversations (canonical_name)
+WHERE type = 'private';

@@ -142,7 +142,7 @@ func (r *Repository) CreateConversationWithParticipants(ctx context.Context, con
 
 func (r *Repository) CreateConversationWithParticipantsByUsernames( ctx context.Context, conversation *db.Conversation, participantUsernames []string,) (err error) {
 
-	logger.Log.Debug("Creating conversation with participants by usernames", "conversation_title", conversation.Title, "participant_usernames", participantUsernames)
+	logger.Log.Debug("Creating conversation with participants by usernames", "type", conversation.Type, "conversation_title", conversation.Title, "participant_usernames", participantUsernames)
 
     tx, err := r.DB.Begin(ctx)
     if err != nil {
