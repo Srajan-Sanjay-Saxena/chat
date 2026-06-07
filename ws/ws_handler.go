@@ -71,7 +71,6 @@ func (h *wsHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	conn, err := h.upgrader.Upgrade(w, r, nil)
 	if err != nil {
 		logger.Log.Error("Failed to upgrade to WebSocket", "error", err)
-		http.Error(w, "Failed to upgrade to WebSocket: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
 
