@@ -15,11 +15,11 @@ import (
 )
 
 type wsHandler struct {
-	messageService   *service.MessageService
-	upgrader       	websocket.Upgrader
-	hub             *Hub
-	maker 		  *helper.JWTMaker
-	isParticipant   func(context.Context, uuid.UUID, uuid.UUID) (bool, error)
+	messageService *service.MessageService
+	upgrader       websocket.Upgrader
+	hub            *Hub
+	maker          *helper.JWTMaker
+	isParticipant  func(context.Context, uuid.UUID, uuid.UUID) (bool, error)
 }
 
 // wsHandler expects requests like this:
@@ -27,7 +27,7 @@ type wsHandler struct {
 // It does not take any query parameters, but it expects the user ID to be available in the request context (set by authentication middleware).
 // And using this handler client side can connect to the WebSocket server and receive real-time updates for the specified conversation.
 // After the connection is established, the client can send messages in the following format:
-// {	
+// {
 //		"type": "message",
 //     "conversation_id": "uuid-of-conversation",
 //     "content": "message content"
@@ -58,8 +58,8 @@ func (h *wsHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Unauthorized: token is required", http.StatusUnauthorized)
 		return
 	}
-	
-  	claims, err := h.maker.VerifyToken(token)
+
+	claims, err := h.maker.VerifyToken(token)
 	if err != nil {
 		logger.Log.Warn("WebSocket connection attempt with invalid token", "error", err)
 		http.Error(w, "Unauthorized: invalid token", http.StatusUnauthorized)
@@ -67,7 +67,6 @@ func (h *wsHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 
 	userID := claims.ID
-	
 
 	conn, err := h.upgrader.Upgrade(w, r, nil)
 	if err != nil {
@@ -80,33 +79,39 @@ func (h *wsHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 }
 
 func NewWebSocketHandler(
-    repo *repository.Repository,
-    hub *Hub,
+	repo *repository.Repository,
+	hub *Hub,
 	maker *helper.JWTMaker,
-    allowedOrigins []string,
-    isParticipant func(context.Context, uuid.UUID, uuid.UUID) (bool, error),
+	allowedOrigins []string,
+	isParticipant func(context.Context, uuid.UUID, uuid.UUID) (bool, error),
 ) http.Handler {
 
-    return &wsHandler{
-        hub:            hub,
-		maker: maker,
-        isParticipant:  isParticipant,
-        messageService: service.NewMessageService(
-            repo,
-            NewLocalPublisher(hub),
-            isParticipant,
-        ),
-        upgrader: websocket.Upgrader{
-            CheckOrigin: func(r *http.Request) bool {
-                return isAllowedOrigin(
-                    r.Header.Get("Origin"),
-                    allowedOrigins,
-                )
-            },
-        },
-    }
-}
+	return &wsHandler{
+		hub:           hub,
+		maker:         maker,
+		isParticipant: isParticipant,
+		messageService: service.NewMessageService(
+			repo,
+			NewLocalPublisher(hub),
+			isParticipant,
+		),
+		upgrader: websocket.Upgrader{
+			CheckOrigin: func(r *http.Request) bool {
+				origin := r.Header.Get("Origin")
 
+				allowed := isAllowedOrigin(origin, allowedOrigins)
+
+				logger.Log.Info(
+					"ws origin check",
+					"origin", origin,
+					"allowed", allowed,
+				)
+
+				return allowed
+			},
+		},
+	}
+}
 
 func isAllowedOrigin(origin string, allowedOrigins []string) bool {
 	origin = strings.TrimSpace(strings.TrimSuffix(origin, "/"))
