@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"time"
 	"github.com/google/uuid"
+	"encoding/json"
 )
 
 type PresenceStore struct {
@@ -89,12 +90,18 @@ func (p *PresenceStore) GetConversationPresence(ctx context.Context, userIDs []u
 	}
 
 	onlineMembers := 0
-	for _, userID := range userIDs {
-		presence, err := p.GetPresence(ctx, userID.String())
-		if err != nil {
-			return PresenceInfo{}, err
-		}
-		if presence.Online {
+	keys := make([]string, totalMembers)
+	for i, uid := range userIDs {
+		keys[i] = fmt.Sprintf("presence:%s", uid.String())
+	}
+
+	results, err := p.redisClient.MGet(ctx, keys...).Result()
+	if err != nil {
+		return PresenceInfo{}, fmt.Errorf("MGET failed: %w", err)
+	}
+
+	for _, res := range results {
+		if res != nil {
 			onlineMembers++
 		}
 	}
@@ -107,17 +114,43 @@ func (p *PresenceStore) GetConversationPresence(ctx context.Context, userIDs []u
 }
 
 func (p *PresenceStore) GetMassPresence(ctx context.Context, userIDs []uuid.UUID) (map[string]Presence, error) {
-	if p.redisClient == nil {
-		return nil, fmt.Errorf("Redis client is not initialized")
-	}
+    if p.redisClient == nil {
+        return nil, fmt.Errorf("Redis client is not initialized")
+    }
+    if len(userIDs) == 0 {
+        return map[string]Presence{}, nil
+    }
 
-	presenceMap := make(map[string]Presence)
-	for _, userID := range userIDs {
-		presence, err := p.GetPresence(ctx, userID.String())
-		if err != nil {
-			return nil, err
-		}
-		presenceMap[userID.String()] = presence
-	}
-	return presenceMap, nil
+    // 1. Build Redis keys
+    keys := make([]string, len(userIDs))
+    for i, uid := range userIDs {
+        keys[i] = "presence:" + uid.String()
+    }
+
+    // 2. Execute MGET
+    results, err := p.redisClient.MGet(ctx, keys...).Result()
+    if err != nil {
+        return nil, fmt.Errorf("MGET failed: %w", err)
+    }
+
+    // 3. Parse results
+    presenceMap := make(map[string]Presence, len(userIDs))
+    for i, uid := range userIDs {
+        key := uid.String()
+        if results[i] == nil {
+            presenceMap[key] = Presence{}   // zero Presence
+            continue
+        }
+        val, ok := results[i].(string)
+        if !ok {
+            return nil, fmt.Errorf("unexpected type for key %s", key)
+        }
+        // 4. Deserialize Presence from val (e.g., JSON, MessagePack, etc.)
+        var presence Presence
+        if err := json.Unmarshal([]byte(val), &presence); err != nil {
+            return nil, fmt.Errorf("failed to unmarshal presence for %s: %w", key, err)
+        }
+        presenceMap[key] = presence
+    }
+    return presenceMap, nil
 }
