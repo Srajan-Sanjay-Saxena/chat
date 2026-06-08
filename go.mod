@@ -10,6 +10,7 @@ require (
 	github.com/joho/godotenv v1.5.1
 	github.com/redis/go-redis/v9 v9.20.0
 	github.com/rs/cors v1.11.1
+	github.com/wagslane/go-password-validator v0.3.0
 	go.uber.org/goleak v1.3.0
 	golang.org/x/crypto v0.51.0
 )

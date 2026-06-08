@@ -33,7 +33,7 @@ func LoadConfig() (*Config, error) {
 		DBSource:         getEnv("DB_SOURCE", ""),
 		JWTSecret:        getEnv("JWT_SECRET", ""),
 		RedisAddr:        getEnv("REDIS_ADDR", ""),
-		RedisUsername:    getEnv("REDIS_USERNAME", ""),
+		RedisUsername:    getEnv("REDIS_USERNAME", "default"),
 		RedisPassword:    getEnv("REDIS_PASSWORD", ""),
 		RedisDB:          redisDBInt,
 		WSAllowedOrigins: ParseAllowedOrigins(getEnv("WS_ALLOWED_ORIGINS", "")),
@@ -47,6 +47,9 @@ func LoadConfig() (*Config, error) {
 	}
 	if cfg.RedisAddr == "" {
 		return nil, fmt.Errorf("REDIS_ADDR is required")
+	}
+	if cfg.RedisPassword == "" {
+		return nil, fmt.Errorf("REDIS_PASSWORD is required")
 	}
 	
 	return cfg, nil

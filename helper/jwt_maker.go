@@ -9,15 +9,40 @@ import (
 	"net/http"
 	"strings"
 	"time"
+	passwordvalidator "github.com/wagslane/go-password-validator"
 )
 
 type JWTMaker struct {
 	secretKey string
 }
 
+const (
+	minSecretKeySize = 32
+	maxSecretKeySize = 256
+	minEntropyBits   = 60
+)
+
 func NewJWTMaker(secretKey string) (*JWTMaker, error) {
-	if len(secretKey) < 32 {
-		return nil, errors.New("secret key must be at least 32 characters long")
+
+	if strings.TrimSpace(secretKey) == "" {
+		return nil, errors.New("secret key cannot be empty")
+	}
+
+	if len(secretKey) < minSecretKeySize {
+		return nil, errors.New("secret key must be at least 32 bytes long for security reasons")
+	}
+
+	if len(secretKey) > maxSecretKeySize {
+		return nil, errors.New("secret key is too long: must be less than 256 bytes")
+	}
+
+	if strings.ContainsAny(secretKey, " \t\n\r") {
+		return nil, errors.New("secret key cannot contain whitespace characters")
+	}
+
+	err := passwordvalidator.Validate(secretKey, minEntropyBits)
+	if err != nil {
+		return nil, fmt.Errorf("secret key does not meet complexity requirements: %w", err)
 	}
 	return &JWTMaker{secretKey: secretKey}, nil
 }
