@@ -26,11 +26,7 @@ import (
 //   - `limit` defaults to 30 and is capped by the repository layer.
 
 func MessageHandler(repo *repository.Repository) http.Handler {
-	if repo == nil {
-		logger.Log.Error("MessageHandler initialization failed: repository is nil")
-		panic("repository cannot be nil")
-	}
-
+	
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet {
 			logger.Log.Debug("Invalid method for MessageHandler", "method", r.Method)

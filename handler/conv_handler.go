@@ -16,20 +16,11 @@ import (
 )
 
 func ConversationJoinHandler(repo *repository.Repository) http.Handler {
-	if repo == nil {
-		logger.Log.Error("ConversationJoinHandler initialization failed: repository is nil")
-		panic("repository cannot be nil")
-	}
 
 	return conversationMembershipHandler(repo, "join")
 }
 
 func ConversationLeaveHandler(repo *repository.Repository) http.Handler {
-	if repo == nil {
-		logger.Log.Error("ConversationLeaveHandler initialization failed: repository is nil")
-		panic("repository cannot be nil")
-	}
-
 	return conversationMembershipHandler(repo, "leave")
 }
 

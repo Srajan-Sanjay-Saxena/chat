@@ -3,10 +3,12 @@ package repository
 import (
 	"chat-v2/db"
 	"context"
-
+	"errors"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
+
+var ErrNilDB = errors.New("database connection pool cannot be nil")
 
 type UserRepository interface {
 	CreateUser(ctx context.Context, user *db.User) error
@@ -38,8 +40,13 @@ type Repository struct {
 	DB *pgxpool.Pool
 }
 
-func NewRepository(db *pgxpool.Pool) *Repository {
+func NewRepository(db *pgxpool.Pool) (*Repository, error) {
+
+	if db == nil {
+		return nil, ErrNilDB
+	}
+
 	return &Repository{
 		DB: db,
-	}
+	}, nil
 }

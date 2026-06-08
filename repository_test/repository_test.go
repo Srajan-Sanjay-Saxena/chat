@@ -76,7 +76,11 @@ func TestMain(m *testing.M) {
 	if err := helper.ResetSchema(DB); err != nil {
 		panic("failed to reset database schema: " + err.Error())
 	}
-	repo = repository.NewRepository(DB)
+	repo, err = repository.NewRepository(DB)
+	if err != nil {
+		panic("failed to initialize repository: " + err.Error())
+	}
+	logger.Log.Info("Repository test suite setup complete")
 	exitCode := m.Run()
 	if suiteLockConn != nil {
 		_, _ = suiteLockConn.Exec(context.Background(), `select pg_advisory_unlock($1)`, suiteLockKey)

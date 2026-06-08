@@ -58,9 +58,13 @@ func main() {
 	// Initialize presence store
 	presenceStore := redis.NewPresenceStore(redisClient)
 	logger.Log.Info("Presence store initialized")
-	// Initialize repositories and handlers
-
-	repo := repository.NewRepository(db.GetDB())
+	
+	// Initialize repository
+	repo, err := repository.NewRepository(db.GetDB())
+	if err != nil {
+		logger.Log.Error("Failed to initialize repository", "error", err)
+		log.Fatalf("repository initialization failed: %v", err)
+	}
 	logger.Log.Info("Repository initialized")
 
 	// Initiaize JWT maker
@@ -76,6 +80,7 @@ func main() {
 	go hub.Run()                                          // Start the hub in a separate goroutine
 	go hub.StartIdleSweeper(5*time.Minute, 1*time.Minute) // Start sweeper with 5 min idle timeout and 1 min check interval
 	logger.Log.Info("WebSocket hub started")
+	
 
 	// Start the server
 	mux := http.NewServeMux()

@@ -84,7 +84,11 @@ func TestMain(m *testing.M) {
 	if err := helper.ResetSchema(DB); err != nil {
 		panic("failed to reset database schema: " + err.Error())
 	}
-	testRepo = repository.NewRepository(DB)
+	testRepo, err = repository.NewRepository(DB)
+	if err != nil {
+		panic("failed to initialize repository: " + err.Error())
+	}
+	logger.Log.Info("Database setup complete")
 
 	// redis connection and presence store creation
 	redisAddr := os.Getenv("REDIS_ADDR")

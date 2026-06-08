@@ -9,10 +9,6 @@ import (
 )
 
 func PresenceHandler(repo *repository.Repository, p *redis.PresenceStore) http.Handler {
-	if repo == nil {
-		logger.Log.Error("presenceHandler initialization failed: repository is nil")
-		panic("repository cannot be nil")
-	}
 
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet {

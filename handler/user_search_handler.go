@@ -33,15 +33,6 @@ type userSearcher interface {
 // The handler validates the request, checks if the user is authenticated, and then performs a search in the database using the repository layer. It also includes rate limiting to prevent abuse of the search functionality.
 func UserSearchHandler(repo userSearcher) http.Handler {
 
-	if logger.Log == nil {
-		panic("logger is nil")
-	}
-
-	if repo == nil {
-		logger.Log.Error("UserSearchHandler initialization failed: repository is nil")
-		panic("repository cannot be nil")
-	}
-
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet {
 			writeJSONError(w, http.StatusMethodNotAllowed, "Method not allowed")

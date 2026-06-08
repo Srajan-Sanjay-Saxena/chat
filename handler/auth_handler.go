@@ -25,11 +25,6 @@ type LoginRequest struct {
 
 func SignUpHandler(repo *repository.Repository) http.Handler {
 
-	if repo == nil {
-		logger.Log.Error("SignUpHandler initialization failed: repository is nil")
-		panic("repository cannot be nil")
-	}
-
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// Method check
 		if r.Method != http.MethodPost {
@@ -116,16 +111,6 @@ func SignUpHandler(repo *repository.Repository) http.Handler {
 
 func LoginHandler(repo *repository.Repository, maker *helper.JWTMaker) http.Handler {
 
-	if repo == nil {
-		logger.Log.Error("LoginHandler initialization failed: repository is nil")
-		panic("repository cannot be nil")
-	}
-
-	if maker == nil {
-		logger.Log.Error("LoginHandler initialization failed: JWT maker is nil")
-		panic("JWT maker cannot be nil")
-	}
-
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// Method check
 		if r.Method != http.MethodPost {
@@ -186,10 +171,6 @@ func LoginHandler(repo *repository.Repository, maker *helper.JWTMaker) http.Hand
 }
 
 func MeHandler(repo *repository.Repository) http.Handler {
-	if repo == nil {
-		logger.Log.Error("MeHandler initialization failed: repository is nil")
-		panic("repository cannot be nil")
-	}
 
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// Method check
