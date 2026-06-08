@@ -1,75 +1,69 @@
 package config
 
 import (
-	"github.com/joho/godotenv"
-	"log"
 	"os"
+	"strconv"
 	"strings"
+	"fmt"
+	"github.com/joho/godotenv"
 )
 
 type Config struct {
 	Port             string
-	DbSource         string
+	DBSource         string
 	JWTSecret        string
 	RedisAddr        string
 	RedisUsername    string
 	RedisPassword    string
-	RedisDB          string
-	WSAllowedOrigins string
-}
-
-type AppConfig struct {
-	Config           *Config
+	RedisDB          int
 	WSAllowedOrigins []string
 }
 
-type CORSConfig struct {
-	AllowedOrigins []string
-}
+func LoadConfig() (*Config, error) {
+	_ = godotenv.Load() // Load .env file, ignore error if it doesn't exist
 
-func (c *CORSConfig) GetAllowedOrigins() []string {
-	return c.AllowedOrigins
-}
-
-func LoadCORSConfig() *CORSConfig {
-	cfg := LoadConfig()
-	allowedOrigins := ParseAllowedOrigins(cfg.WSAllowedOrigins)
-	return &CORSConfig{
-		AllowedOrigins: allowedOrigins,
-	}
-}
-
-func LoadConfig() *Config {
-	err := godotenv.Load()
+	redisDBInt, err := strconv.Atoi(getEnv("REDIS_DB", "0"))
 	if err != nil {
-		log.Println(".env file not found")
+		redisDBInt = 0
 	}
 
-	return &Config{
-		Port:             os.Getenv("PORT"),
-		DbSource:         os.Getenv("dbSource"),
-		JWTSecret:        os.Getenv("JWT_SECRET"),
-		RedisAddr:        os.Getenv("REDIS_ADDR"),
-		RedisUsername:    os.Getenv("REDIS_USERNAME"),
-		RedisPassword:    os.Getenv("REDIS_PASSWORD"),
-		RedisDB:          os.Getenv("REDIS_DB"),
-		WSAllowedOrigins: os.Getenv("WS_ALLOWED_ORIGINS"),
+
+	cfg := &Config{
+		Port:             getEnv("PORT", "8080"),
+		DBSource:         getEnv("DB_SOURCE", ""),
+		JWTSecret:        getEnv("JWT_SECRET", ""),
+		RedisAddr:        getEnv("REDIS_ADDR", ""),
+		RedisUsername:    getEnv("REDIS_USERNAME", ""),
+		RedisPassword:    getEnv("REDIS_PASSWORD", ""),
+		RedisDB:          redisDBInt,
+		WSAllowedOrigins: ParseAllowedOrigins(getEnv("WS_ALLOWED_ORIGINS", "")),
 	}
+
+	if cfg.DBSource == "" {
+		return nil, fmt.Errorf("DB_SOURCE is required")
+	}
+	if cfg.JWTSecret == "" {
+		return nil, fmt.Errorf("JWT_SECRET is required")
+	}
+	if cfg.RedisAddr == "" {
+		return nil, fmt.Errorf("REDIS_ADDR is required")
+	}
+	
+	return cfg, nil
 }
 
-func LoadAppConfig() *AppConfig {
-	cfg := LoadConfig()
-	wsAllowedOrigins := ParseAllowedOrigins(cfg.WSAllowedOrigins)
-	return &AppConfig{
-		Config:           cfg,
-		WSAllowedOrigins: wsAllowedOrigins,
+func getEnv(key, defaultValue string) string {
+	value := os.Getenv(key)
+	if value == "" {
+		return defaultValue
 	}
+	return value
 }
 
 func ParseAllowedOrigins(raw string) []string {
 	raw = strings.TrimSpace(raw)
 	if raw == "" {
-		return nil
+		return []string{}
 	}
 
 	parts := strings.Split(raw, ",")

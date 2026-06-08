@@ -13,48 +13,41 @@ import (
 	"context"
 	"fmt"
 	"github.com/google/uuid"
-	"github.com/joho/godotenv"
 	"log"
 	"net/http"
 	"os"
 	"os/signal"
 	"syscall"
 	"time"
-	"strconv"
 )
 
 func main() {
 	fmt.Println("Starting chat-v2 server...")
-	// Load .env file
-	godotenv.Load()
 
 	// Initialize logger
 	logger.Init()
 	
 	// Load configuration
-	cfg := config.LoadConfig()
-	port := cfg.Port
-	if port == "" {
-		logger.Log.Warn("PORT not set in environment, defaulting to 8080")
-		port = "8080"
+	cfg, err := config.LoadConfig()
+
+	if err != nil {
+		logger.Log.Error("Failed to load configuration", "error", err)
+		log.Fatalf("configuration loading failed: %v", err)
 	}
-	logger.Log.Info("Configuration loaded", "port", port)
+
+	port := cfg.Port
+	logger.Log.Info("Configuration loaded successfully")
 
 	// Connect to the database
-	if err := db.Connect(cfg.DbSource); err != nil {
+	if err := db.Connect(cfg.DBSource); err != nil {
 		logger.Log.Error("Failed to connect to database", "error", err)
 		log.Fatalf("database connection failed: %v", err)
 	}
 	logger.Log.Info("Database connection established")
 
 	// Connect to Redis
-	redisDBInt, err := strconv.Atoi(cfg.RedisDB)
-	if err != nil {
-		logger.Log.Error("Invalid Redis DB number", "error", err, "redis_db", cfg.RedisDB)
-		log.Fatalf("invalid Redis DB number: %v", err)
-	}
 
-	redisClient, err := redis.Connect(cfg.RedisAddr, cfg.RedisUsername, cfg.RedisPassword, redisDBInt)
+	redisClient, err := redis.Connect(cfg.RedisAddr, cfg.RedisUsername, cfg.RedisPassword, cfg.RedisDB)
 	if err != nil {
 		logger.Log.Error("Failed to connect to Redis", "error", err)
 		log.Fatalf("Redis connection failed: %v", err)
@@ -87,7 +80,7 @@ func main() {
 	// Start the server
 	mux := http.NewServeMux()
 	authMiddleware := Middleware.JWTMiddleware(maker)
-	corsMiddleware := Middleware.NewCORSMiddleware(config.LoadCORSConfig())
+	corsMiddleware := Middleware.NewCORSMiddleware(cfg.WSAllowedOrigins)
 	mux.Handle("/health", handler.HealthCheckHandler())
 	// Authentication routes
 	mux.Handle("/api/signup", handler.SignUpHandler(repo)) 
@@ -106,8 +99,7 @@ func main() {
 	// WebSocket route
 	mux.Handle("/api/past_messages", authMiddleware(handler.MessageHandler(repo)))
 	logger.Log.Info("Message handler registered at /past_messages")
-	originAllowlist := config.ParseAllowedOrigins(cfg.WSAllowedOrigins)
-	mux.Handle("/ws", ws.NewWebSocketHandler(repo, hub, maker, originAllowlist,
+	mux.Handle("/ws", ws.NewWebSocketHandler(repo, hub, maker, cfg.WSAllowedOrigins,
 		func(ctx context.Context, conversationID, userID uuid.UUID) (bool, error) {
 			return repo.IsParticipant(ctx, conversationID, userID)
 		},
