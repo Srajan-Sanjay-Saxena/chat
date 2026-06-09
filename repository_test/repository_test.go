@@ -10,83 +10,60 @@ import (
 	"os"
 	"testing"
 	"time"
-	"runtime"
-	"path/filepath"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
-	"github.com/joho/godotenv"
+	"chat-v2/config"
+	"log"
 )
 
 var repo *repository.Repository
-var suiteLockConn *pgxpool.Conn
-var DB db.Db
-const suiteLockKey int64 = 842020
+var DB *pgxpool.Pool
 
-func resetTestDatabase(t *testing.T) {
-	t.Helper()
-	if err := helper.ResetSchema(DB); err != nil {
-		t.Fatalf("failed to reset database schema: %v", err)
-	}
-}
+// func resetTestDatabase(t *testing.T) {
+// 	t.Helper()
+// 	if err := helper.ResetSchema(DB); err != nil {
+// 		t.Fatalf("failed to reset database schema: %v", err)
+// 	}
+// }
 
 func TestMain(m *testing.M) {
+	logger.TestInit()
+	logger.Log.Info("Starting test suite setup")
+
+	cfg, err := config.LoadConfig("../.env")
+	if err != nil {
+		log.Fatalf("configuration loading failed: %v", err)
+	}
 
 	schema := fmt.Sprintf("test_%d", time.Now().UnixNano())
-	_, file, _, ok := runtime.Caller(0)
-	if !ok {
-		panic("unable to resolve test file path")
-	}
-	repoRoot := filepath.Dir(file)
-	_ = godotenv.Load(filepath.Join(repoRoot, ".env"))
-	_ = godotenv.Load(filepath.Join(repoRoot, "..", ".env"))
-	logger.TestInit()
-
-	logger.Log.Info("Starting repository test suite setup")
-	dsn := os.Getenv("dbSource")
-	if dsn == "" {
-		panic("dbSource is not set")
-	}
-
-	if err := db.Connect(dsn); err != nil {
-		panic("failed to connect to database: " + err.Error())
-	}
-
-	DB, err := db.Connect2(dsn, schema)
+	
+	DB , err := db.Connect(cfg.DBSource)
 	if err != nil {
-		panic("failed to connect to database: " + err.Error())
+		log.Fatalf("failed to connect to database: %v", err)
 	}
+	defer func() {
+		DB.Close()
+	} ()
+	
 	_, err = DB.Exec(
 		context.Background(),
 		fmt.Sprintf(`CREATE SCHEMA IF NOT EXISTS "%s"`, schema),
 	)
 	if err != nil {
-		panic("failed to create test schema: " + err.Error())
+		log.Fatalf("failed to create schema: %v", err)
 	}
 
-	lockConn, err := DB.Acquire(context.Background())
-	if err != nil {
-		panic("failed to acquire test DB lock connection: " + err.Error())
+	if err := helper.ResetSchema(DB, schema); err != nil {
+		log.Fatalf("failed to reset database schema: %v", err)
 	}
-	suiteLockConn = lockConn
-	if _, err := suiteLockConn.Exec(context.Background(), `select pg_advisory_lock($1)`, suiteLockKey); err != nil {
-		panic("failed to acquire test DB advisory lock: " + err.Error())
-	}
-	_ = os.Setenv("CHAT_TEST_SUITE_DB_LOCK_HELD", "1")
 
-	if err := helper.ResetSchema(DB); err != nil {
-		panic("failed to reset database schema: " + err.Error())
-	}
-	repo, err = repository.NewRepository(DB)
+	repo, err = repository.NewRepository(DB, schema)
 	if err != nil {
-		panic("failed to initialize repository: " + err.Error())
+		log.Fatalf("failed to initialize repository: %v", err)
 	}
-	logger.Log.Info("Repository test suite setup complete")
+	logger.Log.Info("Database setup complete")
+
 	exitCode := m.Run()
-	if suiteLockConn != nil {
-		_, _ = suiteLockConn.Exec(context.Background(), `select pg_advisory_unlock($1)`, suiteLockKey)
-		suiteLockConn.Release()
-	}
-	_ = os.Unsetenv("CHAT_TEST_SUITE_DB_LOCK_HELD")
 
 	_, err = DB.Exec(
 		context.Background(),
@@ -95,7 +72,6 @@ func TestMain(m *testing.M) {
 	if err != nil {
 		logger.Log.Error("drop schema", "err", err)
 	}
-
 	os.Exit(exitCode)
 }
 

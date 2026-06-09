@@ -12,7 +12,7 @@ import (
 )
 
 func TestJWTMiddleware_ProtectedEndpointValidation(t *testing.T) {
-	maker, err := helper.NewJWTMaker("abcdefghijklmnopqrstuvwxyz123456")
+	maker, err := helper.NewJWTMaker("chshgif-sjrbn0-snekc-akfknce-afrnlkj")
 	if err != nil {
 		t.Fatalf("new jwt maker: %v", err)
 	}

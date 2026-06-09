@@ -1,7 +1,6 @@
 package helper
 
 import (
-	"chat-v2/db"
 	"context"
 	"fmt"
 	"os"
@@ -13,10 +12,6 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-// Lock key dedicated to schema reset operations.
-// Kept separate from package-level suite lock keys to avoid lock recursion.
-const schemaResetLockKey int64 = 842019
-const skipSchemaResetLockEnv = "CHAT_TEST_SUITE_DB_LOCK_HELD"
 
 func schemaSQLPath(filename string) string {
 	_, file, _, ok := runtime.Caller(0)
@@ -63,48 +58,51 @@ func executeSQLFileIfExists(ctx context.Context, conn *pgxpool.Conn, filename st
 	return executeSQLFile(ctx, conn, filename)
 }
 
-func withSchemaResetLock(ctx context.Context, fn func(context.Context, *pgxpool.Conn) error) error {
-	conn, err := db.GetDB().Acquire(ctx)
+
+func Migrate(pool *pgxpool.Pool, schema string) error {
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Minute)
+	defer cancel()
+
+	conn, err := pool.Acquire(ctx)
 	if err != nil {
 		return err
 	}
 	defer conn.Release()
 
-	if _, err := conn.Exec(ctx, `select pg_advisory_lock($1)`, schemaResetLockKey); err != nil {
+	if _, err := conn.Exec(ctx, fmt.Sprintf(`SET search_path TO "%s",public`, schema)); err != nil {
 		return err
 	}
-	defer func() {
-		_, _ = conn.Exec(context.Background(), `select pg_advisory_unlock($1)`, schemaResetLockKey)
-	}()
 
-	return fn(ctx, conn)
+	if err := executeSQLFileIfExists(ctx, conn, "0001_schema.up.sql"); err != nil {
+		return err
+	}
+
+	return nil
 }
 
-func Migrate() error {
+func Rollback(pool *pgxpool.Pool, schema string) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Minute)
 	defer cancel()
 
-	return withSchemaResetLock(ctx, func(ctx context.Context, conn *pgxpool.Conn) error {
-		if err := executeSQLFileIfExists(ctx, conn, "0001_schema.up.sql"); err != nil {
-			return err
-		}
-		return nil
-	})
+	conn, err := pool.Acquire(ctx)
+	if err != nil {
+		return err
+	}
+	defer conn.Release()
+
+	if _, err := conn.Exec(ctx, fmt.Sprintf(`SET search_path TO "%s",public`, schema)); err != nil {
+		return err
+	}
+
+	if err := executeSQLFileIfExists(ctx, conn, "0001_schema.down.sql"); err != nil {
+		return err
+	}
+
+	return nil
 }
 
-func Rollback() error {
-	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Minute)
-	defer cancel()
-
-	return withSchemaResetLock(ctx, func(ctx context.Context, conn *pgxpool.Conn) error {
-		if err := executeSQLFileIfExists(ctx, conn, "0001_schema.down.sql"); err != nil {
-			return err
-		}
-		return nil
-	})
-}
-
-func ResetSchema(DB *pgxpool.Pool) error {
+func ResetSchema(DB *pgxpool.Pool, schemaName string) error {
+	logger.Log.Info("Resetting database schema", "schema", schemaName)
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
 
@@ -122,34 +120,20 @@ func ResetSchema(DB *pgxpool.Pool) error {
 		_ = tx.Rollback(context.Background())
 	}()
 
-	if os.Getenv(skipSchemaResetLockEnv) != "1" {
-		if _, err := tx.Exec(ctx, `select pg_advisory_xact_lock($1)`, schemaResetLockKey); err != nil {
-			return fmt.Errorf("reset schema lock: %w", err)
-		}
-	}
-
-	var currentSchema string
-	if err := tx.QueryRow(ctx, `select current_schema()`).Scan(&currentSchema); err != nil {
-		return err
-	}
-	logger.Log.Info(
-		"ResetSchema",
-		"schema", currentSchema,
-	)
 	_, err = tx.Exec(ctx,
-		fmt.Sprintf(`DROP SCHEMA IF EXISTS "%s" CASCADE`, currentSchema))
+		fmt.Sprintf(`DROP SCHEMA IF EXISTS "%s" CASCADE`, schemaName))
 	if err != nil {
 		return err
 	}
 
 	_, err = tx.Exec(ctx,
-		fmt.Sprintf(`CREATE SCHEMA "%s"`, currentSchema))
+		fmt.Sprintf(`CREATE SCHEMA "%s"`, schemaName))
 	if err != nil {
 		return err
 	}
 
 	_, err = tx.Exec(ctx,
-		fmt.Sprintf(`SET search_path TO "%s",public`, currentSchema))
+		fmt.Sprintf(`SET search_path TO "%s",public`, schemaName))
 	if err != nil {
 		return err
 	}

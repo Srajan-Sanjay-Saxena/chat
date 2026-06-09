@@ -58,7 +58,8 @@ func decodeCursor(s string) (*Cursor, error) {
 func (r *Repository) CreateMessage(ctx context.Context, message *db.Message) error {
 	start := time.Now()
 	// Writing SQL query to insert a new message into the database
-	query := `insert into messages (id, conversation_id, sender_id, content, created_at) values ($1, $2, $3, $4, $5) returning id, created_at`
+	// query := `insert into messages (id, conversation_id, sender_id, content, created_at) values ($1, $2, $3, $4, $5) returning id, created_at`
+	query := fmt.Sprintf(`insert into %s (id, conversation_id, sender_id, content, created_at) values ($1, $2, $3, $4, $5) returning id, created_at`, r.table("messages"))
 
 	// Executing the query and scanning the returned id into the message struct
 	err := r.DB.QueryRow(ctx, query, message.ID, message.ConversationID, message.SenderID, message.Content, message.CreatedAt).Scan(&message.ID, &message.CreatedAt)
@@ -69,7 +70,8 @@ func (r *Repository) CreateMessage(ctx context.Context, message *db.Message) err
 func (r *Repository) GetMessageByID(ctx context.Context, id uuid.UUID) (*db.Message, error) {
 
 	// Writing SQL query to select a message by id
-	query := `select * from messages where id = $1`
+	// query := `select * from messages where id = $1`
+	query := fmt.Sprintf(`select * from %s where id = $1`, r.table("messages"))
 
 	// Executing the query and scanning the result into a message struct
 	var message db.Message
@@ -89,12 +91,17 @@ func (r *Repository) GetMessagesByConversationID(ctx context.Context, conversati
 	// Build query with positional placeholders safely
 	args := []interface{}{}
 	idx := 1
-	query := `
-		select m.id, m.conversation_id, m.content, m.created_at, u.username, m.sender_id
-		from messages m
-		join users u on m.sender_id = u.id
-		where m.conversation_id = $1
-	`
+	// query := `
+	// 	select m.id, m.conversation_id, m.content, m.created_at, u.username, m.sender_id
+	// 	from messages m
+	// 	join users u on m.sender_id = u.id
+	// 	where m.conversation_id = $1
+	// `
+	query := fmt.Sprintf(`select m.id, m.conversation_id, m.content, m.created_at, u.username, m.sender_id
+	from %s m
+	join %s u on m.sender_id = u.id
+	where m.conversation_id = $%d`, r.table("messages"), r.table("users"), idx)
+
 	args = append(args, conversationID)
 	idx++
 

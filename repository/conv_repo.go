@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"time"
+	"fmt"
 	"chat-v2/logger"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgconn"
@@ -17,14 +18,17 @@ func (r *Repository) CreateConversation(ctx context.Context, conversation *db.Co
 	if conversation.Type == "" {
 		conversation.Type = "group"
 	}
-	query := `insert into conversations (id, type, title, display_name, canonical_name, created_at) values ($1, $2, $3, $4, $5, $6) returning id, type, title, display_name, canonical_name, created_at`
+	// query := `insert into conversations (id, type, title, display_name, canonical_name, created_at) values ($1, $2, $3, $4, $5, $6) returning id, type, title, display_name, canonical_name, created_at`
+	query := fmt.Sprintf(`insert into %s (id, type, title, display_name, canonical_name, created_at) values ($1, $2, $3, $4, $5, $6) returning id, type, title, display_name, canonical_name, created_at`, r.table("conversations"))
 
 	return r.DB.QueryRow(ctx, query, conversation.ID, conversation.Type, conversation.Title, conversation.DisplayName, conversation.CanonicalName, conversation.CreatedAt).
 		Scan(&conversation.ID, &conversation.Type, &conversation.Title, &conversation.DisplayName, &conversation.CanonicalName, &conversation.CreatedAt)
 }
 
 func (r *Repository) GetConversationByID(ctx context.Context, id uuid.UUID) (*db.Conversation, error) {
-	query := `select id, type, title, display_name, canonical_name, created_at from conversations where id = $1`
+	// query := `select id, type, title, display_name, canonical_name, created_at from conversations where id = $1`
+
+	query := fmt.Sprintf(`select id, type, title, display_name, canonical_name, created_at from %s where id = $1`, r.table("conversations"))
 
 	var conversation db.Conversation
 	err := r.DB.QueryRow(ctx, query, id).Scan(&conversation.ID, &conversation.Type, &conversation.Title, &conversation.DisplayName, &conversation.CanonicalName, &conversation.CreatedAt)
@@ -35,9 +39,13 @@ func (r *Repository) GetConversationByID(ctx context.Context, id uuid.UUID) (*db
 }
 
 func (r *Repository) GetConversationsByUserID(ctx context.Context, userID uuid.UUID) ([]*db.Conversation, error) {
-	query := `select c.id, c.type, c.title, c.display_name, c.canonical_name, c.created_at from conversations c 
-			  join conversation_participants cp on c.id = cp.conversation_id 
-			  where cp.user_id = $1 order by c.created_at`
+	// query := `select c.id, c.type, c.title, c.display_name, c.canonical_name, c.created_at from conversations c 
+	// 		  join conversation_participants cp on c.id = cp.conversation_id 
+	// 		  where cp.user_id = $1 order by c.created_at`
+
+	query := fmt.Sprintf(`select c.id, c.type, c.title, c.display_name, c.canonical_name, c.created_at from %s c 
+			  join %s cp on c.id = cp.conversation_id 
+			  where cp.user_id = $1 order by c.created_at`, r.table("conversations"), r.table("conversation_participants"))
 
 	rows, err := r.DB.Query(ctx, query, userID)
 	if err != nil {
@@ -60,14 +68,23 @@ func (r *Repository) GetConversationsByUserID(ctx context.Context, userID uuid.U
 // and, for private conversations, the other participant's username as the
 // returned Conversation.DisplayName value (server-computed).
 func (r *Repository) GetConversationsWithOtherUsernameByUserID(ctx context.Context, userID uuid.UUID) ([]*db.Conversation, error) {
-	query := `
-		select c.id, c.type, c.title, c.display_name, c.canonical_name, c.created_at, u.username
-		from conversations c
-		join conversation_participants cp on c.id = cp.conversation_id and cp.user_id = $1
-		left join conversation_participants cp_other on cp_other.conversation_id = c.id and cp_other.user_id <> $1 and c.type = 'private'
-		left join users u on u.id = cp_other.user_id
-		order by c.created_at
-	`
+	// query := `
+	// 	select c.id, c.type, c.title, c.display_name, c.canonical_name, c.created_at, u.username
+	// 	from conversations c
+	// 	join conversation_participants cp on c.id = cp.conversation_id and cp.user_id = $1
+	// 	left join conversation_participants cp_other on cp_other.conversation_id = c.id and cp_other.user_id <> $1 and c.type = 'private'
+	// 	left join users u on u.id = cp_other.user_id
+	// 	order by c.created_at
+	// `
+
+	query := fmt.Sprintf(`
+	select c.id, c.type, c.title, c.display_name, c.canonical_name, c.created_at, u.username
+	from %s c
+	join %s cp on c.id = cp.conversation_id and cp.user_id = $1
+	left join %s cp_other on cp_other.conversation_id = c.id and cp_other.user_id <> $1 and c.type = 'private'
+	left join %s u on u.id = cp_other.user_id
+	order by c.created_at
+	`, r.table("conversations"), r.table("conversation_participants"), r.table("conversation_participants"), r.table("users"))
 
 	rows, err := r.DB.Query(ctx, query, userID)
 	if err != nil {
@@ -114,11 +131,17 @@ func (r *Repository) CreateConversationWithParticipants(ctx context.Context, con
 		conversation.Type = "group"
 	}
 
-	query := `
-		insert into conversations (id, type, title, display_name, canonical_name, created_at)
+	// query := `
+	// 	insert into conversations (id, type, title, display_name, canonical_name, created_at)
+	// 	values ($1, $2, $3, $4, $5, $6)
+	// 	returning id
+	// `
+	query := fmt.Sprintf(`
+		insert into %s (id, type, title, display_name, canonical_name, created_at)
 		values ($1, $2, $3, $4, $5, $6)
 		returning id
-	`
+	`, r.table("conversations"))
+
 	err = tx.QueryRow(ctx, query, conversation.ID, conversation.Type, conversation.Title, conversation.DisplayName, conversation.CanonicalName, conversation.CreatedAt).Scan(&conversation.ID)
 	if err != nil {
 		var pgErr *pgconn.PgError
@@ -162,14 +185,15 @@ func (r *Repository) CreateConversationWithParticipantsByUsernames( ctx context.
     // ---- Validate usernames exist ----
 
 	var missingCount int
+	query := fmt.Sprintf(`
+	SELECT COUNT(*)
+	FROM unnest($1::text[]) input(username)
+	LEFT JOIN %s u
+		ON u.username = input.username
+	WHERE u.id IS NULL
+	`, r.table("users"))
 
-	err = tx.QueryRow(ctx, `
-		SELECT COUNT(*)
-		FROM unnest($1::text[]) input(username)
-		LEFT JOIN users u
-			ON u.username = input.username
-		WHERE u.id IS NULL
-	`, uniqueUsernames).Scan(&missingCount)
+	err = tx.QueryRow(ctx, query, uniqueUsernames).Scan(&missingCount)
 
 	if err != nil {
 		return err
@@ -193,13 +217,15 @@ func (r *Repository) CreateConversationWithParticipantsByUsernames( ctx context.
         conversation.Type = "group"
     }
 
-    err = tx.QueryRow(ctx, `
-        INSERT INTO conversations
-            (id, type, title, display_name, canonical_name, created_at)
-        VALUES
-            ($1,$2,$3,$4,$5,$6)
-        RETURNING id
-    `,
+	query = fmt.Sprintf(`
+		INSERT INTO %s
+			(id, type, title, display_name, canonical_name, created_at)
+		VALUES
+			($1,$2,$3,$4,$5,$6)
+		RETURNING id
+	`, r.table("conversations"))
+
+    err = tx.QueryRow(ctx, query,
         conversation.ID,
         conversation.Type,
         conversation.Title,
@@ -217,13 +243,13 @@ func (r *Repository) CreateConversationWithParticipantsByUsernames( ctx context.
     }
 
     // ---- Insert participants ----
-
-    _, err = tx.Exec(ctx, `
-        INSERT INTO conversation_participants (conversation_id, user_id)
-        SELECT $1, id
-        FROM users
-        WHERE username = ANY($2::text[])
-    `, conversation.ID, uniqueUsernames)
+	query = fmt.Sprintf(`
+		INSERT INTO %s (conversation_id, user_id)
+		SELECT $1, id
+		FROM %s
+		WHERE username = ANY($2::text[])
+	`, r.table("conversation_participants"), r.table("users"))
+    _, err = tx.Exec(ctx, query, conversation.ID, uniqueUsernames)
 
     if err != nil {
         return err
@@ -233,7 +259,8 @@ func (r *Repository) CreateConversationWithParticipantsByUsernames( ctx context.
 }
 
 func (r *Repository) GetConversationParticipants(ctx context.Context, conversationID uuid.UUID) ([]uuid.UUID, error) {
-	query := `select user_id from conversation_participants where conversation_id = $1`
+	// query := `select user_id from conversation_participants where conversation_id = $1`
+	query := fmt.Sprintf(`select user_id from %s where conversation_id = $1`, r.table("conversation_participants"))
 
 	rows, err := r.DB.Query(ctx, query, conversationID)
 	if err != nil {
@@ -253,17 +280,27 @@ func (r *Repository) GetConversationParticipants(ctx context.Context, conversati
 }
 
 func (r *Repository) AddConversationParticipant(ctx context.Context, conversationID, userID uuid.UUID) error {
-	_, err := r.DB.Exec(ctx, `insert into conversation_participants (conversation_id, user_id) values ($1, $2)`, conversationID, userID)
+	
+	// query := `insert into conversation_participants (conversation_id, user_id) values ($1, $2)`
+	query := fmt.Sprintf(`insert into %s (conversation_id, user_id) values ($1, $2)`, r.table("conversation_participants"))
+
+	_, err := r.DB.Exec(ctx, query, conversationID, userID)
+
 	return err
 }
 
 func (r *Repository) RemoveConversationParticipant(ctx context.Context, conversationID, userID uuid.UUID) error {
-	_, err := r.DB.Exec(ctx, `delete from conversation_participants where conversation_id = $1 and user_id = $2`, conversationID, userID)
+	// query := `delete from conversation_participants where conversation_id = $1 and user_id = $2`
+	query := fmt.Sprintf(`delete from %s where conversation_id = $1 and user_id = $2`, r.table("conversation_participants"))
+
+	_, err := r.DB.Exec(ctx, query, conversationID, userID)
+
 	return err
 }
 
 func (r *Repository) GetConversationByTitle(ctx context.Context, title string) (*db.Conversation, error) {
-	query := `select id, type, title, display_name, canonical_name, created_at from conversations where title = $1`
+	// query := `select id, type, title, display_name, canonical_name, created_at from conversations where title = $1`
+	query := fmt.Sprintf(`select id, type, title, display_name, canonical_name, created_at from %s where title = $1`, r.table("conversations"))
 
 	var conversation db.Conversation
 	err := r.DB.QueryRow(ctx, query, title).Scan(&conversation.ID, &conversation.Type, &conversation.Title, &conversation.DisplayName, &conversation.CanonicalName, &conversation.CreatedAt)
@@ -274,7 +311,8 @@ func (r *Repository) GetConversationByTitle(ctx context.Context, title string) (
 }
 
 func (r *Repository) GetConversationByCanonicalName(ctx context.Context, canonical string) (*db.Conversation, error) {
-	query := `select id, type, title, display_name, canonical_name, created_at from conversations where canonical_name = $1 and type = 'private'`
+	// query := `select id, type, title, display_name, canonical_name, created_at from conversations where canonical_name = $1 and type = 'private'`
+	query := fmt.Sprintf(`select id, type, title, display_name, canonical_name, created_at from %s where canonical_name = $1 and type = 'private'`, r.table("conversations"))
 
 	var conversation db.Conversation
 	err := r.DB.QueryRow(ctx, query, canonical).Scan(&conversation.ID, &conversation.Type, &conversation.Title, &conversation.DisplayName, &conversation.CanonicalName, &conversation.CreatedAt)

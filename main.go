@@ -28,7 +28,7 @@ func main() {
 	logger.Init()
 	
 	// Load configuration
-	cfg, err := config.LoadConfig()
+	cfg, err := config.LoadConfig(".env")
 
 	if err != nil {
 		logger.Log.Error("Failed to load configuration", "error", err)
@@ -39,10 +39,12 @@ func main() {
 	logger.Log.Info("Configuration loaded successfully")
 
 	// Connect to the database
-	if err := db.Connect(cfg.DBSource); err != nil {
+	DB, err := db.Connect(cfg.DBSource)
+	if err != nil {
 		logger.Log.Error("Failed to connect to database", "error", err)
 		log.Fatalf("database connection failed: %v", err)
 	}
+	defer DB.Close()
 	logger.Log.Info("Database connection established")
 
 	// Connect to Redis
@@ -60,7 +62,7 @@ func main() {
 	logger.Log.Info("Presence store initialized")
 	
 	// Initialize repository
-	repo, err := repository.NewRepository(db.GetDB())
+	repo, err := repository.NewRepository(DB, "public")
 	if err != nil {
 		logger.Log.Error("Failed to initialize repository", "error", err)
 		log.Fatalf("repository initialization failed: %v", err)
@@ -113,7 +115,11 @@ func main() {
 	mux.Handle("/api/presence", authMiddleware(handler.PresenceHandler(repo, presenceStore)))
 	
 	// Temporary migration logic
-	helper.Migrate()
+	if err := helper.Migrate(DB, "public") ; err != nil {
+		logger.Log.Error("Database migration failed", "error", err)
+		log.Fatalf("database migration failed: %v", err)
+	}
+	logger.Log.Info("Database migration completed successfully")
 
 	// Start the HTTP server
 	// Wrap the mux with CORS middleware
@@ -143,10 +149,6 @@ func main() {
 	hub.Stop()
 	<-hub.Done()
 	logger.Log.Info("WebSocket hub stopped")
-
-	// Close database connection
-	db.GetDB().Close()
-	logger.Log.Info("Database connection closed")
 
 	logger.Log.Info("Server stopped")
 }

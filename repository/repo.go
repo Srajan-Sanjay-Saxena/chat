@@ -6,6 +6,7 @@ import (
 	"errors"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"fmt"
 )
 
 var ErrNilDB = errors.New("database connection pool cannot be nil")
@@ -38,9 +39,10 @@ type ConversationParticipantRepository interface {
 
 type Repository struct {
 	DB *pgxpool.Pool
+	Schema string
 }
 
-func NewRepository(db *pgxpool.Pool) (*Repository, error) {
+func NewRepository(db *pgxpool.Pool, schema string) (*Repository, error) {
 
 	if db == nil {
 		return nil, ErrNilDB
@@ -48,5 +50,10 @@ func NewRepository(db *pgxpool.Pool) (*Repository, error) {
 
 	return &Repository{
 		DB: db,
+		Schema: schema,
 	}, nil
+}
+
+func (r *Repository) table(name string) string {
+	return fmt.Sprintf(`"%s".%s`, r.Schema, name)
 }

@@ -19,9 +19,13 @@ type Config struct {
 	WSAllowedOrigins []string
 }
 
-func LoadConfig() (*Config, error) {
-	_ = godotenv.Load() // Load .env file, ignore error if it doesn't exist
+func LoadConfig(envPath string) (*Config, error) {
 
+	if envPath == "" {
+		envPath = ".env"
+	}
+	godotenv.Load(envPath) // Load .env file, ignore error if it doesn't exist
+	
 	redisDBInt, err := strconv.Atoi(getEnv("REDIS_DB", "0"))
 	if err != nil {
 		redisDBInt = 0

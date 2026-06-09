@@ -11,81 +11,83 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
-	"path/filepath"
-	"runtime"
 	"strings"
 	"testing"
 	"time"
+	"log"
 	"fmt"
 	"github.com/google/uuid"
 	"github.com/gorilla/websocket"
 	"github.com/jackc/pgx/v5/pgxpool"
-	"github.com/joho/godotenv"
 )
 
 var testRepo *repository.Repository
 var suiteLockConn *pgxpool.Conn
-var DB db.Db
+var DB *pgxpool.Pool
 const suiteLockKey int64 = 842020
-
-func resetTestDatabase(t *testing.T) {
-	t.Helper()
-	if err := helper.ResetSchema(DB); err != nil {
-		t.Fatalf("failed to reset database schema: %v", err)
-	}
-}
+var maker *helper.JWTMaker
+// func resetTestDatabase(t *testing.T) {
+// 	t.Helper()
+// 	if err := helper.ResetSchema(DB); err != nil {
+// 		t.Fatalf("failed to reset database schema: %v", err)
+// 	}
+// }
 
 func TestMain(m *testing.M) {
-	schema := fmt.Sprintf("test_%d", time.Now().UnixNano())
-	_, file, _, ok := runtime.Caller(0)
-	if !ok {
-		panic("unable to resolve test file path")
-	}
-	repoRoot := filepath.Dir(filepath.Dir(file))
-	_ = godotenv.Load(filepath.Join(repoRoot, ".env"))
 	logger.TestInit()
+	logger.Log.Info("Starting test suite setup")
 
-	dsn := os.Getenv("dbSource")
-	if dsn == "" {
-		panic("dbSource is not set")
-	}
-	DB, err := db.Connect2(dsn, schema)
+	cfg, err := config.LoadConfig("../.env")
 	if err != nil {
-		panic("failed to connect to database: " + err.Error())
+		log.Fatalf("configuration loading failed: %v", err)
 	}
+
+	schema := fmt.Sprintf("test_%d", time.Now().UnixNano())
+	DB , err := db.Connect(cfg.DBSource)
+	if err != nil {
+		log.Fatalf("failed to connect to database: %v", err)
+	}
+	defer func() {
+		DB.Close()
+	} ()
+	
 	_, err = DB.Exec(
 		context.Background(),
 		fmt.Sprintf(`CREATE SCHEMA IF NOT EXISTS "%s"`, schema),
 	)
 	if err != nil {
-		panic("failed to create test schema: " + err.Error())
+		log.Fatalf("failed to create schema: %v", err)
 	}
 
-	lockConn, err := DB.Acquire(context.Background())
+	if err := helper.ResetSchema(DB, schema); err != nil {
+		log.Fatalf("failed to reset database schema: %v", err)
+	}
+	testRepo, err = repository.NewRepository(DB, schema)
 	if err != nil {
-		panic("failed to acquire test DB lock connection: " + err.Error())
-	}
-	suiteLockConn = lockConn
-	if _, err := suiteLockConn.Exec(context.Background(), `select pg_advisory_lock($1)`, suiteLockKey); err != nil {
-		panic("failed to acquire test DB advisory lock: " + err.Error())
-	}
-	_ = os.Setenv("CHAT_TEST_SUITE_DB_LOCK_HELD", "1")
-
-	if err := helper.ResetSchema(DB); err != nil {
-		panic("failed to reset database schema: " + err.Error())
-	}
-
-	testRepo, err = repository.NewRepository(DB)
-	if err != nil {
-		panic("failed to initialize repository: " + err.Error())
+		log.Fatalf("failed to initialize repository: %v", err)
 	}
 	logger.Log.Info("Database setup complete")
-	exitCode := m.Run()
-	if suiteLockConn != nil {
-		_, _ = suiteLockConn.Exec(context.Background(), `select pg_advisory_unlock($1)`, suiteLockKey)
-		suiteLockConn.Release()
+
+	maker, err = helper.NewJWTMaker(cfg.JWTSecret)
+	if err != nil {
+		log.Fatalf("failed to create JWT maker: %v", err)
 	}
-	_ = os.Unsetenv("CHAT_TEST_SUITE_DB_LOCK_HELD")
+
+	// redis connection and presence store creation
+	// redisAddr := os.Getenv("REDIS_ADDR")
+	// redisPassword := os.Getenv("REDIS_PASSWORD")
+	// redisUsername := os.Getenv("REDIS_USERNAME")
+	// redisDB := 0
+
+	// redisClient , err := redis.Connect(redisAddr, redisUsername, redisPassword, redisDB)
+	// if err != nil {
+	// 	panic("failed to connect to Redis: " + err.Error())
+	// }
+	// defer redisClient.Close()
+
+	// presenceStore = redis.NewPresenceStore(redisClient)
+
+	exitCode := m.Run()
 
 	_, err = DB.Exec(
 		context.Background(),
@@ -94,7 +96,6 @@ func TestMain(m *testing.M) {
 	if err != nil {
 		logger.Log.Error("drop schema", "err", err)
 	}
-
 	os.Exit(exitCode)
 }
 
@@ -143,10 +144,6 @@ func TestWebSocketIntegration_PublishSubscribePersist(t *testing.T) {
 		t.Fatalf("add participant: %v", err)
 	}
 
-	maker, err := helper.NewJWTMaker("abcdefghijklmnopqrstuvwxyz123456")
-	if err != nil {
-		t.Fatalf("new jwt maker: %v", err)
-	}
 	token, err := maker.CreateToken(userID, time.Hour)
 	if err != nil {
 		t.Fatalf("create token: %v", err)

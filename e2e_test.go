@@ -7,25 +7,25 @@ import (
 	"chat-v2/handler"
 	"chat-v2/helper"
 	"chat-v2/logger"
+	"chat-v2/config"
 	"chat-v2/repository"
 	"chat-v2/ws"
 	"context"
 	"encoding/json"
 	"io"
+	"log"
 	"net/http"
 	"net/http/httptest"
 	"os"
-	"path/filepath"
-	"runtime"
 	"strings"
 	"testing"
 	"time"
 	"fmt"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
-	"github.com/joho/godotenv"
 )
 
+var maker *helper.JWTMaker
 var testRepo *repository.Repository
 var suiteLockConn *pgxpool.Conn
 var DB *pgxpool.Pool
@@ -43,52 +43,45 @@ type conversationListResponse struct {
 }
 
 func TestMain(m *testing.M) {
+	logger.TestInit()
+	logger.Log.Info("Starting test suite setup")
+
+	cfg, err := config.LoadConfig(".env")
+	if err != nil {
+		log.Fatalf("configuration loading failed: %v", err)
+	}
 
 	schema := fmt.Sprintf("test_%d", time.Now().UnixNano())
-	_, file, _, ok := runtime.Caller(0)
-	if !ok {
-		panic("unable to resolve test file path")
-	}
-	repoRoot := filepath.Dir(file)
-	_ = godotenv.Load(filepath.Join(repoRoot, ".env"))
-	_ = godotenv.Load(filepath.Join(repoRoot, "..", ".env"))
-	logger.TestInit()
+	DB , err := db.Connect(cfg.DBSource)
 
-	logger.Log.Info("Starting e2e test suite setup")
-	dsn := os.Getenv("dbSource")
-	if dsn == "" {
-		panic("dbSource is not set")
-	}
-	DB, err := db.Connect2(dsn, schema)
 	if err != nil {
-		panic("failed to connect to database: " + err.Error())
+		log.Fatalf("failed to connect to database: %v", err)
 	}
+	defer func() {
+		DB.Close()
+	} ()
+	
 	_, err = DB.Exec(
 		context.Background(),
 		fmt.Sprintf(`CREATE SCHEMA IF NOT EXISTS "%s"`, schema),
 	)
 	if err != nil {
-		panic("failed to create test schema: " + err.Error())
+		log.Fatalf("failed to create schema: %v", err)
 	}
 
-	lockConn, err := DB.Acquire(context.Background())
+	if err := helper.ResetSchema(DB, schema); err != nil {
+		log.Fatalf("failed to reset database schema: %v", err)
+	}
+	testRepo, err = repository.NewRepository(DB, schema)
 	if err != nil {
-		panic("failed to acquire test DB lock connection: " + err.Error())
-	}
-	suiteLockConn = lockConn
-	if _, err := suiteLockConn.Exec(context.Background(), `select pg_advisory_lock($1)`, suiteLockKey); err != nil {
-		panic("failed to acquire test DB advisory lock: " + err.Error())
-	}
-	_ = os.Setenv("CHAT_TEST_SUITE_DB_LOCK_HELD", "1")
-
-	if err := helper.ResetSchema(DB); err != nil {
-		panic("failed to reset database schema: " + err.Error())
-	}
-	testRepo, err = repository.NewRepository(DB)
-	if err != nil {
-		panic("failed to initialize repository: " + err.Error())
+		log.Fatalf("failed to initialize repository: %v", err)
 	}
 	logger.Log.Info("Database setup complete")
+
+	maker, err = helper.NewJWTMaker(cfg.JWTSecret)
+	if err != nil {
+		log.Fatalf("failed to create JWT maker: %v", err)
+	}
 
 	// redis connection and presence store creation
 	redisAddr := os.Getenv("REDIS_ADDR")
@@ -105,11 +98,6 @@ func TestMain(m *testing.M) {
 	presenceStore = redis.NewPresenceStore(redisClient)
 
 	exitCode := m.Run()
-	if suiteLockConn != nil {
-		_, _ = suiteLockConn.Exec(context.Background(), `select pg_advisory_unlock($1)`, suiteLockKey)
-		suiteLockConn.Release()
-	}
-	_ = os.Unsetenv("CHAT_TEST_SUITE_DB_LOCK_HELD")
 
 	_, err = DB.Exec(
 		context.Background(),
@@ -122,7 +110,6 @@ func TestMain(m *testing.M) {
 }
 
 func TestChatFlow_E2E(t *testing.T) {
-	logger.Log.Info("Starting end-to-end test")
 	// reset := func() {
 	// 	if err := helper.ResetSchema(DB); err != nil {
 	// 		t.Fatalf("reset schema: %v", err)
@@ -130,10 +117,7 @@ func TestChatFlow_E2E(t *testing.T) {
 	// }
 	// reset()
 
-	maker, err := helper.NewJWTMaker("abcdefghijklmnopqrstuvwxyz123456")
-	if err != nil {
-		t.Fatalf("new jwt maker: %v", err)
-	}
+	
 	hub := ws.NewHub(presenceStore)
 	defer func() {
 		hub.Stop()
@@ -266,11 +250,7 @@ func TestE2E_CreatePrivateByUsernames(t *testing.T) {
 	// 	}
 	// }
 	// reset()
-
-	maker, err := helper.NewJWTMaker("abcdefghijklmnopqrstuvwxyz123456")
-	if err != nil {
-		t.Fatalf("new jwt maker: %v", err)
-	}
+	
 	hub := ws.NewHub(presenceStore)
 	defer func() {
 		hub.Stop()
