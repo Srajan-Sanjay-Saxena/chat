@@ -7,8 +7,9 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
-	"github.com/google/uuid"
 	"time"
+
+	"github.com/google/uuid"
 )
 
 type Cursor struct {
@@ -59,10 +60,10 @@ func (r *Repository) CreateMessage(ctx context.Context, message *db.Message) err
 	start := time.Now()
 	// Writing SQL query to insert a new message into the database
 	// query := `insert into messages (id, conversation_id, sender_id, content, created_at) values ($1, $2, $3, $4, $5) returning id, created_at`
-	query := fmt.Sprintf(`insert into %s (id, conversation_id, sender_id, content, created_at) values ($1, $2, $3, $4, $5) returning id, created_at`, r.table("messages"))
+	query := fmt.Sprintf(`insert into %s (id, conversation_id, sender_id, sender_username, content, created_at) values ($1, $2, $3, $4, $5, $6) returning id, created_at`, r.table("messages"))
 
 	// Executing the query and scanning the returned id into the message struct
-	err := r.DB.QueryRow(ctx, query, message.ID, message.ConversationID, message.SenderID, message.Content, message.CreatedAt).Scan(&message.ID, &message.CreatedAt)
+	err := r.DB.QueryRow(ctx, query, message.ID, message.ConversationID, message.SenderID, message.SenderUsername, message.Content, message.CreatedAt).Scan(&message.ID, &message.CreatedAt)
 	logger.Log.Debug("CreateMessage query executed", "message_id", message.ID, "conversation_id", message.ConversationID, "sender_id", message.SenderID, "duration_ms", time.Since(start).Milliseconds())
 	return err
 }
@@ -75,7 +76,7 @@ func (r *Repository) GetMessageByID(ctx context.Context, id uuid.UUID) (*db.Mess
 
 	// Executing the query and scanning the result into a message struct
 	var message db.Message
-	err := r.DB.QueryRow(ctx, query, id).Scan(&message.ID, &message.ConversationID, &message.SenderID, &message.Content, &message.CreatedAt)
+	err := r.DB.QueryRow(ctx, query, id).Scan(&message.ID, &message.SenderID, &message.SenderUsername, &message.ConversationID, &message.Content, &message.CreatedAt)
 	if err != nil {
 		return nil, err
 	}
@@ -97,10 +98,7 @@ func (r *Repository) GetMessagesByConversationID(ctx context.Context, conversati
 	// 	join users u on m.sender_id = u.id
 	// 	where m.conversation_id = $1
 	// `
-	query := fmt.Sprintf(`select m.id, m.conversation_id, m.content, m.created_at, u.username, m.sender_id
-	from %s m
-	join %s u on m.sender_id = u.id
-	where m.conversation_id = $%d`, r.table("messages"), r.table("users"), idx)
+	query := fmt.Sprintf(` select m.id, m.conversation_id, m.content, m.created_at, m.sender_username, m.sender_id from %s m where m.conversation_id = $1`, r.table("messages"))
 
 	args = append(args, conversationID)
 	idx++
@@ -118,7 +116,7 @@ func (r *Repository) GetMessagesByConversationID(ctx context.Context, conversati
 
 	// Fetch one extra row to determine if there are more pages
 	fetchLimit := limit + 1
-	query += fmt.Sprintf(" order by created_at desc, id desc limit $%d", idx)
+	query += fmt.Sprintf(" order by m.created_at desc, id desc limit $%d", idx)
 	args = append(args, fetchLimit)
 
 	rows, err := r.DB.Query(ctx, query, args...)
@@ -154,7 +152,6 @@ func (r *Repository) GetMessagesByConversationID(ctx context.Context, conversati
 			return nil, err
 		}
 		encodedNext = c
-		logger.Log.Info("Next cursor for pagination", "cursor", c)
 	}
 
 	return &MessageResponse{Messages: messages, NextCursor: encodedNext, HasMore: hasMore}, nil

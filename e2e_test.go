@@ -1,17 +1,18 @@
 package main_test
 
 import (
-	"chat-v2/Middleware"
+	"chat-v2/middleware"
+	"chat-v2/config"
 	"chat-v2/db"
 	"chat-v2/db/redis"
 	"chat-v2/handler"
 	"chat-v2/helper"
 	"chat-v2/logger"
-	"chat-v2/config"
 	"chat-v2/repository"
 	"chat-v2/ws"
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"log"
 	"net/http"
@@ -20,7 +21,7 @@ import (
 	"strings"
 	"testing"
 	"time"
-	"fmt"
+
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
@@ -30,7 +31,9 @@ var testRepo *repository.Repository
 var suiteLockConn *pgxpool.Conn
 var DB *pgxpool.Pool
 var presenceStore *redis.PresenceStore
+
 const suiteLockKey int64 = 842020
+
 type authResponse struct {
 	Status    string `json:"status"`
 	UserID    string `json:"user_id"`
@@ -52,15 +55,15 @@ func TestMain(m *testing.M) {
 	}
 
 	schema := fmt.Sprintf("test_%d", time.Now().UnixNano())
-	DB , err := db.Connect(cfg.DBSource)
+	DB, err := db.Connect(cfg.DBSource)
 
 	if err != nil {
 		log.Fatalf("failed to connect to database: %v", err)
 	}
 	defer func() {
 		DB.Close()
-	} ()
-	
+	}()
+
 	_, err = DB.Exec(
 		context.Background(),
 		fmt.Sprintf(`CREATE SCHEMA IF NOT EXISTS "%s"`, schema),
@@ -89,7 +92,7 @@ func TestMain(m *testing.M) {
 	redisUsername := os.Getenv("REDIS_USERNAME")
 	redisDB := 0
 
-	redisClient , err := redis.Connect(redisAddr, redisUsername, redisPassword, redisDB)
+	redisClient, err := redis.Connect(redisAddr, redisUsername, redisPassword, redisDB)
 	if err != nil {
 		panic("failed to connect to Redis: " + err.Error())
 	}
@@ -117,7 +120,6 @@ func TestChatFlow_E2E(t *testing.T) {
 	// }
 	// reset()
 
-	
 	hub := ws.NewHub(presenceStore)
 	defer func() {
 		hub.Stop()
@@ -125,7 +127,7 @@ func TestChatFlow_E2E(t *testing.T) {
 	}()
 	go hub.Run()
 
-	authMiddleware := Middleware.JWTMiddleware(maker)
+	authMiddleware := middleware.JWTMiddleware(maker)
 	mux := http.NewServeMux()
 	mux.Handle("/signup", handler.SignUpHandler(testRepo))
 	mux.Handle("/login", handler.LoginHandler(testRepo, maker))
@@ -250,7 +252,7 @@ func TestE2E_CreatePrivateByUsernames(t *testing.T) {
 	// 	}
 	// }
 	// reset()
-	
+
 	hub := ws.NewHub(presenceStore)
 	defer func() {
 		hub.Stop()
@@ -258,7 +260,7 @@ func TestE2E_CreatePrivateByUsernames(t *testing.T) {
 	}()
 	go hub.Run()
 
-	authMiddleware := Middleware.JWTMiddleware(maker)
+	authMiddleware := middleware.JWTMiddleware(maker)
 	mux := http.NewServeMux()
 	mux.Handle("/signup", handler.SignUpHandler(testRepo))
 	mux.Handle("/login", handler.LoginHandler(testRepo, maker))

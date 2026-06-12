@@ -9,7 +9,7 @@ import (
 	"net/http/httptest"
 	"testing"
 	"time"
-	"chat-v2/Middleware"
+	"chat-v2/middleware"
 	"github.com/google/uuid"
 	"chat-v2/logger"
 )
@@ -60,7 +60,7 @@ func TestUserSearchHandler_ValidationAndRateLimit(t *testing.T) {
 		t.Fatalf("create token: %v", err)
 	}
 
-	authMiddleware := Middleware.JWTMiddleware(maker)
+	authMiddleware := middleware.JWTMiddleware(maker)
 
 	handler := authMiddleware(UserSearchHandler(stubUserSearchRepo{
 		users: []*db.User{{ID: uuid.New(), Username: "alice"}},

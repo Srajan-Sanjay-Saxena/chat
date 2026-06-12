@@ -46,7 +46,7 @@ func TestNoGoroutineLeaksOnConnectClose(t *testing.T) {
 		hub.register <- c
 
 		go func() {
-			c.readPump(service.NewMessageService(nil, NewLocalPublisher(hub), nil))
+			c.readPump(service.NewMessageService(nil, NewLocalPublisher(hub)))
 		}()
 		go c.writePump()
 	}))

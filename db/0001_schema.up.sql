@@ -29,6 +29,7 @@ create table if not exists public.messages (
     id uuid primary key default uuid_generate_v4(),
     conversation_id uuid not null references public.conversations(id) on delete cascade,
     sender_id uuid not null references public.users(id) on delete cascade,
+    sender_username text not null,
     content text not null,
     created_at timestamptz not null default now()
 );

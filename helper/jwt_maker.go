@@ -199,6 +199,5 @@ func GetUserFromContext(ctx context.Context) (uuid.UUID, bool) {
 		return userID, true
 	}
 
-	userID, ok = ctx.Value("userID").(uuid.UUID)
 	return userID, ok
 }

@@ -46,7 +46,7 @@ func TestClientClose_IdempotentAndHubCleanup(t *testing.T) {
 
 		// start pumps
 		go func() {
-			c.readPump(service.NewMessageService(nil, NewLocalPublisher(hub), nil))
+			c.readPump(service.NewMessageService(nil, NewLocalPublisher(hub)))
 		}()
 		go c.writePump()
 	}))

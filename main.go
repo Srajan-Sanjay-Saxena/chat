@@ -1,24 +1,25 @@
 package main
 
 import (
-	"chat-v2/Middleware"
+	"chat-v2/middleware"
 	"chat-v2/config"
 	"chat-v2/db"
+	"chat-v2/db/redis"
 	"chat-v2/handler"
 	"chat-v2/helper"
 	"chat-v2/logger"
 	"chat-v2/repository"
-	"chat-v2/db/redis"
 	"chat-v2/ws"
 	"context"
 	"fmt"
-	"github.com/google/uuid"
 	"log"
 	"net/http"
 	"os"
 	"os/signal"
 	"syscall"
 	"time"
+
+	"github.com/google/uuid"
 )
 
 func main() {
@@ -26,13 +27,12 @@ func main() {
 
 	// Initialize logger
 	logger.Init()
-	
+
 	// Load configuration
 	cfg, err := config.LoadConfig(".env")
 
 	if err != nil {
 		logger.Log.Error("Failed to load configuration", "error", err)
-		log.Fatalf("configuration loading failed: %v", err)
 	}
 
 	port := cfg.Port
@@ -60,7 +60,7 @@ func main() {
 	// Initialize presence store
 	presenceStore := redis.NewPresenceStore(redisClient)
 	logger.Log.Info("Presence store initialized")
-	
+
 	// Initialize repository
 	repo, err := repository.NewRepository(DB, "public")
 	if err != nil {
@@ -82,22 +82,21 @@ func main() {
 	go hub.Run()                                          // Start the hub in a separate goroutine
 	go hub.StartIdleSweeper(5*time.Minute, 1*time.Minute) // Start sweeper with 5 min idle timeout and 1 min check interval
 	logger.Log.Info("WebSocket hub started")
-	
 
 	// Start the server
 	mux := http.NewServeMux()
-	authMiddleware := Middleware.JWTMiddleware(maker)
-	corsMiddleware := Middleware.NewCORSMiddleware(cfg.WSAllowedOrigins)
+	authMiddleware := middleware.JWTMiddleware(maker)
+	corsMiddleware := middleware.NewCORSMiddleware(cfg.WSAllowedOrigins)
 	mux.Handle("/health", handler.HealthCheckHandler())
 	// Authentication routes
-	mux.Handle("/api/signup", handler.SignUpHandler(repo)) 
+	mux.Handle("/api/signup", handler.SignUpHandler(repo))
 	mux.Handle("/api/login", handler.LoginHandler(repo, maker))
 	logger.Log.Info("Authentication handlers registered under /signup and /login")
 	// Conversation routes
 	mux.Handle("/api/me", authMiddleware(handler.MeHandler(repo)))
 	mux.Handle("/api/conversation/join", authMiddleware(handler.ConversationJoinHandler(repo)))
 	mux.Handle("/api/conversation/leave", authMiddleware(handler.ConversationLeaveHandler(repo)))
-	mux.Handle("/api/conversation/create", authMiddleware(handler.ConvCreateHandler(repo))) 
+	mux.Handle("/api/conversation/create", authMiddleware(handler.ConvCreateHandler(repo)))
 	mux.Handle("/api/conversation/list", authMiddleware(handler.ConvListHandler(repo)))
 	mux.Handle("/api/conversation/members", authMiddleware(handler.ConvMemberListHandler(repo)))
 	mux.Handle("/api/conversation/messages", authMiddleware(handler.MessageHandler(repo)))
@@ -113,9 +112,9 @@ func main() {
 	))
 
 	mux.Handle("/api/presence", authMiddleware(handler.PresenceHandler(repo, presenceStore)))
-	
+
 	// Temporary migration logic
-	if err := helper.Migrate(DB, "public") ; err != nil {
+	if err := helper.Migrate(DB, "public"); err != nil {
 		logger.Log.Error("Database migration failed", "error", err)
 		log.Fatalf("database migration failed: %v", err)
 	}

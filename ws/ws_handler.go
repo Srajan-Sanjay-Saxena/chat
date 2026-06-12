@@ -92,7 +92,6 @@ func NewWebSocketHandler(
 		messageService: service.NewMessageService(
 			repo,
 			NewLocalPublisher(hub),
-			isParticipant,
 		),
 		upgrader: websocket.Upgrader{
 			CheckOrigin: func(r *http.Request) bool {

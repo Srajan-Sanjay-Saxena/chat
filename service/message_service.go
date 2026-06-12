@@ -16,12 +16,11 @@ var ErrInvalidMessage = errors.New("invalid message")
 
 type MessageService struct {
 	repo          *repository.Repository
-	isParticipant func(context.Context, uuid.UUID, uuid.UUID) (bool, error)
 	publisher     EventPublisher
 }
 
-func NewMessageService(repo *repository.Repository, publisher EventPublisher, isParticipant func(context.Context, uuid.UUID, uuid.UUID) (bool, error)) *MessageService {
-	return &MessageService{repo: repo, isParticipant: isParticipant, publisher: publisher}
+func NewMessageService(repo *repository.Repository, publisher EventPublisher) *MessageService {
+	return &MessageService{repo: repo, publisher: publisher}
 }
 
 func (s *MessageService) CreateMessage(ctx context.Context, userID, conversationID uuid.UUID, content string) (*db.Message, error) {
@@ -35,14 +34,12 @@ func (s *MessageService) CreateMessage(ctx context.Context, userID, conversation
 	}
 
 	checkStart := time.Now()
-	if s.isParticipant != nil {
-		allowed, err := s.isParticipant(ctx, conversationID, userID)
-		if err != nil {
-			return nil, err
-		}
-		if !allowed {
-			return nil, ErrNotParticipant
-		}
+	isParticipant, err := s.repo.IsParticipant(ctx, conversationID, userID)
+	if err != nil {
+		return nil, err
+	}
+	if !isParticipant {
+		return nil, ErrNotParticipant
 	}
 
 	logger.Log.Debug("participant check completed", "duration_ms", time.Since(checkStart).Milliseconds())
