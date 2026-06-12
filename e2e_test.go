@@ -144,14 +144,24 @@ func TestChatFlow_E2E(t *testing.T) {
 	member := signupAndLogin(t, server.URL, "e2e_member")
 
 	createReq, _ := http.NewRequest(http.MethodPost, server.URL+"/conversation/create", jsonBody(map[string]any{"title": "e2e conversation"}))
-	createReq.Header.Set("Authorization", "Bearer "+creator.Token)
+	createReq.AddCookie(
+		&http.Cookie{
+			Name:  "access_token",
+			Value: creator.Token,
+		},
+	)
 	createResp := doJSONRequest(t, createReq)
 	if createResp.StatusCode != http.StatusCreated {
 		t.Fatalf("create conversation status=%d body=%s", createResp.StatusCode, createResp.Body)
 	}
 
 	listReq, _ := http.NewRequest(http.MethodGet, server.URL+"/conversation/list", nil)
-	listReq.Header.Set("Authorization", "Bearer "+creator.Token)
+	listReq.AddCookie(
+		&http.Cookie{
+			Name:  "access_token",
+			Value: creator.Token,
+		},
+	)
 	listResp := doJSONRequest(t, listReq)
 	if listResp.StatusCode != http.StatusOK {
 		t.Fatalf("list conversations status=%d body=%s", listResp.StatusCode, listResp.Body)
@@ -167,14 +177,24 @@ func TestChatFlow_E2E(t *testing.T) {
 	conversationID := convList.Conversations[0].ID
 
 	joinReq, _ := http.NewRequest(http.MethodPost, server.URL+"/conversation/join?conversation_id="+conversationID.String(), nil)
-	joinReq.Header.Set("Authorization", "Bearer "+member.Token)
+	joinReq.AddCookie(
+		&http.Cookie{
+			Name:  "access_token",
+			Value: member.Token,
+		},
+	)
 	joinResp := doJSONRequest(t, joinReq)
 	if joinResp.StatusCode != http.StatusOK {
 		t.Fatalf("join status=%d body=%s", joinResp.StatusCode, joinResp.Body)
 	}
 
 	membersReq, _ := http.NewRequest(http.MethodGet, server.URL+"/conversation/members?conversation_id="+conversationID.String(), nil)
-	membersReq.Header.Set("Authorization", "Bearer "+creator.Token)
+	membersReq.AddCookie(
+		&http.Cookie{
+			Name:  "access_token",
+			Value: creator.Token,
+		},
+	)
 	membersResp := doJSONRequest(t, membersReq)
 	if membersResp.StatusCode != http.StatusOK {
 		t.Fatalf("members status=%d body=%s", membersResp.StatusCode, membersResp.Body)
@@ -209,7 +229,12 @@ func TestChatFlow_E2E(t *testing.T) {
 	}
 
 	msgReq, _ := http.NewRequest(http.MethodGet, server.URL+"/conversation/messages?conversation_id="+conversationID.String()+"&limit=2", nil)
-	msgReq.Header.Set("Authorization", "Bearer "+creator.Token)
+	msgReq.AddCookie(
+		&http.Cookie{
+			Name:  "access_token",
+			Value: creator.Token,
+		},
+	)
 	msgResp := doJSONRequest(t, msgReq)
 	if msgResp.StatusCode != http.StatusOK {
 		t.Fatalf("messages status=%d body=%s", msgResp.StatusCode, msgResp.Body)
@@ -227,7 +252,12 @@ func TestChatFlow_E2E(t *testing.T) {
 	}
 
 	nextReq, _ := http.NewRequest(http.MethodGet, server.URL+"/conversation/messages?conversation_id="+conversationID.String()+"&limit=2&before="+repoPage.NextCursor, nil)
-	nextReq.Header.Set("Authorization", "Bearer "+creator.Token)
+	nextReq.AddCookie(
+		&http.Cookie{
+			Name:  "access_token",
+			Value: creator.Token,
+		},
+	)
 	nextResp := doJSONRequest(t, nextReq)
 	if nextResp.StatusCode != http.StatusOK {
 		t.Fatalf("next page status=%d body=%s", nextResp.StatusCode, nextResp.Body)
@@ -270,10 +300,15 @@ func TestE2E_CreatePrivateByUsernames(t *testing.T) {
 
 	creator := signupAndLogin(t, server.URL, "ec")
 	member := signupAndLogin(t, server.URL, "em")
-
+	// t.Logf("creator.token=%s", creator.Token)
 	// Create private conversation by username (creator -> member)
 	createReq, _ := http.NewRequest(http.MethodPost, server.URL+"/conversation/create", jsonBody(map[string]any{"type": "private", "participant_usernames": []string{member.Username}}))
-	createReq.Header.Set("Authorization", "Bearer "+creator.Token)
+	createReq.AddCookie(
+		&http.Cookie{
+			Name:  "access_token",
+			Value: creator.Token,
+		},
+	)
 	createResp := doJSONRequest(t, createReq)
 	if createResp.StatusCode != http.StatusCreated {
 		t.Fatalf("create private by usernames status=%d body=%s", createResp.StatusCode, createResp.Body)
@@ -288,7 +323,12 @@ func TestE2E_CreatePrivateByUsernames(t *testing.T) {
 
 	// Create again - should return created=false and same conversation id
 	createReq2, _ := http.NewRequest(http.MethodPost, server.URL+"/conversation/create", jsonBody(map[string]any{"type": "private", "participant_usernames": []string{member.Username}}))
-	createReq2.Header.Set("Authorization", "Bearer "+creator.Token)
+	createReq2.AddCookie(
+		&http.Cookie{
+			Name:  "access_token",
+			Value: creator.Token,
+		},
+	)
 	createResp2 := doJSONRequest(t, createReq2)
 	if createResp2.StatusCode != http.StatusOK {
 		t.Fatalf("second create expected 200 got=%d body=%s", createResp2.StatusCode, createResp2.Body)
@@ -318,6 +358,7 @@ type testHTTPResponse struct {
 	StatusCode int
 	Body       string
 	BodyBytes  []byte
+	Response   *http.Response
 }
 
 func signupAndLogin(t *testing.T, serverURL, usernamePrefix string) testUserSession {
@@ -354,7 +395,16 @@ func signupAndLogin(t *testing.T, serverURL, usernamePrefix string) testUserSess
 	if err != nil {
 		t.Fatalf("parse user id: %v", err)
 	}
-	return testUserSession{UserID: parsedUserID, Token: payload.Token, Username: username}
+	// t.Logf("login cookies: %+v", loginResp.Response.Cookies())
+	var token string
+	for _, cookie := range loginResp.Response.Cookies() {
+		if cookie.Name == "access_token" {
+			token = cookie.Value
+			break
+		}
+	}
+
+	return testUserSession{UserID: parsedUserID, Token: token, Username: username}
 }
 
 func jsonBody(v any) *strings.Reader {
@@ -373,5 +423,6 @@ func doJSONRequest(t *testing.T, req *http.Request) testHTTPResponse {
 	if err != nil {
 		t.Fatalf("read body: %v", err)
 	}
-	return testHTTPResponse{StatusCode: resp.StatusCode, Body: string(bodyBytes), BodyBytes: bodyBytes}
+	// t.Logf("response: %v", resp)
+	return testHTTPResponse{StatusCode: resp.StatusCode, Body: string(bodyBytes), BodyBytes: bodyBytes, Response: resp}
 }

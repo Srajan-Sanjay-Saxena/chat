@@ -68,7 +68,7 @@ func TestUserSearchHandler_ValidationAndRateLimit(t *testing.T) {
 
 	t.Run("rejects invalid query", func(t *testing.T) {
 		req := httptest.NewRequest(http.MethodGet, "/users/search?q=ali$ce", nil)
-		req.Header.Set("Authorization", "Bearer "+token)
+		req.Header.Add("Cookie", "access_token="+token)
 		req.RemoteAddr = "127.0.0.1:12345"
 		rec := httptest.NewRecorder()
 
@@ -81,7 +81,7 @@ func TestUserSearchHandler_ValidationAndRateLimit(t *testing.T) {
 
 	t.Run("rejects invalid limit", func(t *testing.T) {
 		req := httptest.NewRequest(http.MethodGet, "/users/search?q=alice&limit=0", nil)
-		req.Header.Set("Authorization", "Bearer "+token)
+		req.Header.Add("Cookie", "access_token="+token)
 		req.RemoteAddr = "127.0.0.1:12345"
 		rec := httptest.NewRecorder()
 
@@ -96,7 +96,7 @@ func TestUserSearchHandler_ValidationAndRateLimit(t *testing.T) {
 		resetUserSearchLimiter()
 		for i := 0; i < userSearchMaxPerWindow; i++ {
 			req := httptest.NewRequest(http.MethodGet, "/users/search?q=alice&limit=5", nil)
-			req.Header.Set("Authorization", "Bearer "+token)
+			req.Header.Add("Cookie", "access_token="+token)
 			req.RemoteAddr = "127.0.0.1:12345"
 			rec := httptest.NewRecorder()
 
@@ -111,7 +111,7 @@ func TestUserSearchHandler_ValidationAndRateLimit(t *testing.T) {
 		}
 
 		req := httptest.NewRequest(http.MethodGet, "/users/search?q=alice&limit=5", nil)
-		req.Header.Set("Authorization", "Bearer "+token)
+		req.Header.Add("Cookie", "access_token="+token)
 		req.RemoteAddr = "127.0.0.1:12345"
 		rec := httptest.NewRecorder()
 

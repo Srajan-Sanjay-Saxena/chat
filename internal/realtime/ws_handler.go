@@ -1,19 +1,20 @@
 package realtime
 
 import (
+	"chat-v2/helper"
 	"chat-v2/logger"
 	"net/http"
-	"chat-v2/helper"
-	"github.com/gorilla/websocket"
-	"github.com/google/uuid"
-	"sync"
 	"strings"
+	"sync"
+
+	"github.com/google/uuid"
+	"github.com/gorilla/websocket"
 )
 
 type WSHandler struct {
 	realtimeHandler *RealtimeHandler
-	maker *helper.JWTMaker
-	upgrader websocket.Upgrader
+	maker           *helper.JWTMaker
+	upgrader        websocket.Upgrader
 }
 
 func (h *WSHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -25,19 +26,12 @@ func (h *WSHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// token check and userID extraction
-	token := r.URL.Query().Get("token")
-	if token == "" {
-		logger.Log.Warn("WebSocket connection attempt without token")
-		http.Error(w, "Unauthorized: token is required", http.StatusUnauthorized)
+	userID, ok := helper.GetUserFromContext(r.Context())
+	if !ok {
+		logger.Log.Error("Failed to get user from context in WSHandler")
+		http.Error(w, "Unauthorized: user not found in context", http.StatusUnauthorized)
 		return
 	}
-	claims, err := h.maker.VerifyToken(token)
-	if err != nil {
-		logger.Log.Warn("WebSocket connection attempt with invalid token", "error", err)
-		http.Error(w, "Unauthorized: invalid token", http.StatusUnauthorized)
-		return
-	}
-	userID := claims.ID
 
 	// upgrade connection to WebSocket
 	conn, err := h.upgrader.Upgrade(w, r, nil)
@@ -53,7 +47,7 @@ func (h *WSHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 func NewWSHandler(realtimeHandler *RealtimeHandler, maker *helper.JWTMaker, allowedOrigins []string) http.Handler {
 	return &WSHandler{
 		realtimeHandler: realtimeHandler,
-		maker: maker,
+		maker:           maker,
 		upgrader: websocket.Upgrader{
 			CheckOrigin: func(r *http.Request) bool {
 				origin := r.Header.Get("Origin")
@@ -95,14 +89,13 @@ func isAllowedOrigin(origin string, allowedOrigins []string) bool {
 
 func (h *WSHandler) HandleWsConnection(conn *websocket.Conn, userID uuid.UUID, username string) {
 	client := &client{
-		conn: conn,
-		send: make(chan []byte, 256),
-		userID: userID,
-		username: username,
+		conn:      conn,
+		send:      make(chan []byte, 256),
+		userID:    userID,
+		username:  username,
 		closeOnce: sync.Once{},
 	}
 
 	go client.writePump()
 	go client.readPump(h.realtimeHandler)
 }
-	

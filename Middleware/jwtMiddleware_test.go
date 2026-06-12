@@ -18,6 +18,7 @@ func TestJWTMiddleware_ProtectedEndpointValidation(t *testing.T) {
 	}
 
 	userID := uuid.New()
+
 	token, err := maker.CreateToken(userID, time.Hour)
 	if err != nil {
 		t.Fatalf("create token: %v", err)
@@ -28,38 +29,79 @@ func TestJWTMiddleware_ProtectedEndpointValidation(t *testing.T) {
 		if !ok {
 			t.Fatalf("expected user id in request context")
 		}
+
 		if gotUserID != userID {
-			t.Fatalf("unexpected user id in context: got=%s want=%s", gotUserID, userID)
+			t.Fatalf(
+				"unexpected user id in context: got=%s want=%s",
+				gotUserID,
+				userID,
+			)
 		}
+
 		w.WriteHeader(http.StatusOK)
 	})
 
 	middleware := JWTMiddleware(maker)
 	handler := middleware(dummyProtectedHandler)
 
-	t.Run("rejects missing authorization header", func(t *testing.T) {
+	t.Run("rejects missing access token cookie", func(t *testing.T) {
 		req := httptest.NewRequest(http.MethodGet, "/protected", nil)
 		rec := httptest.NewRecorder()
 
 		handler.ServeHTTP(rec, req)
 
 		if rec.Code != http.StatusUnauthorized {
-			t.Fatalf("unexpected status: got=%d want=%d", rec.Code, http.StatusUnauthorized)
+			t.Fatalf(
+				"unexpected status: got=%d want=%d",
+				rec.Code,
+				http.StatusUnauthorized,
+			)
 		}
-		if !strings.Contains(rec.Body.String(), "authorization header is missing") {
+
+		if !strings.Contains(rec.Body.String(), "access_token") {
 			t.Fatalf("unexpected body: %q", rec.Body.String())
 		}
 	})
 
-	t.Run("allows valid bearer token", func(t *testing.T) {
+	t.Run("rejects empty access token cookie", func(t *testing.T) {
 		req := httptest.NewRequest(http.MethodGet, "/protected", nil)
-		req.Header.Set("Authorization", "Bearer "+token)
+
+		req.AddCookie(&http.Cookie{
+			Name:  "access_token",
+			Value: "",
+		})
+
+		rec := httptest.NewRecorder()
+
+		handler.ServeHTTP(rec, req)
+
+		if rec.Code != http.StatusUnauthorized {
+			t.Fatalf(
+				"unexpected status: got=%d want=%d",
+				rec.Code,
+				http.StatusUnauthorized,
+			)
+		}
+	})
+
+	t.Run("allows valid access token cookie", func(t *testing.T) {
+		req := httptest.NewRequest(http.MethodGet, "/protected", nil)
+
+		req.AddCookie(&http.Cookie{
+			Name:  "access_token",
+			Value: token,
+		})
+
 		rec := httptest.NewRecorder()
 
 		handler.ServeHTTP(rec, req)
 
 		if rec.Code != http.StatusOK {
-			t.Fatalf("unexpected status: got=%d want=%d", rec.Code, http.StatusOK)
+			t.Fatalf(
+				"unexpected status: got=%d want=%d",
+				rec.Code,
+				http.StatusOK,
+			)
 		}
 	})
 }

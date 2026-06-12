@@ -1,22 +1,24 @@
 package realtime
 
 import (
-	"testing"
-	"chat-v2/logger"
-	"os"
 	"chat-v2/config"
 	"chat-v2/db"
+	"chat-v2/helper"
+	"chat-v2/logger"
 	"chat-v2/repository"
+	"chat-v2/service"
 	"context"
 	"fmt"
-	"time"
-	"chat-v2/helper"
-	"github.com/google/uuid"
 	"net/http"
-	"chat-v2/service"
 	"net/http/httptest"
-	"github.com/gorilla/websocket"
+	"os"
 	"strings"
+	"testing"
+	"time"
+
+	"github.com/google/uuid"
+	"github.com/gorilla/websocket"
+	"chat-v2/middleware"
 )
 
 var testRepo *repository.Repository
@@ -26,14 +28,14 @@ var maker *helper.JWTMaker
 func TestMain(m *testing.M) {
 	logger.TestInit()
 	logger.Log.Info("Starting Hub tests...")
-	
+
 	cfg, err := config.LoadConfig("../../.env")
 	if err != nil {
 		logger.Log.Error("configuration loading failed", "error", err)
 	}
 
 	schema := fmt.Sprintf("test_%d", time.Now().UnixNano())
-	DB , err := db.Connect(cfg.DBSource)
+	DB, err := db.Connect(cfg.DBSource)
 	if err != nil {
 		logger.Log.Error("failed to connect to database", "error", err)
 	}
@@ -54,7 +56,7 @@ func TestMain(m *testing.M) {
 	}
 
 	testRepo, err = repository.NewRepository(DB, schema)
-	if err!= nil {
+	if err != nil {
 		logger.Log.Error("failed to create repository", "error", err)
 	}
 
@@ -77,19 +79,19 @@ func TestMain(m *testing.M) {
 }
 
 type wsIncomingMessage struct {
-	Type string `json:"type"`
-	Content string `json:"content,omitempty"`
+	Type           string    `json:"type"`
+	Content        string    `json:"content,omitempty"`
 	ConversationID uuid.UUID `json:"conversation_id"`
 }
 
 type wsOutgoingMessage struct {
-	Type string `json:"type"`
-	Content string `json:"content,omitempty"`
+	Type           string    `json:"type"`
+	Content        string    `json:"content,omitempty"`
 	ConversationID uuid.UUID `json:"conversation_id,omitempty"`
-	SenderID uuid.UUID `json:"sender_id,omitempty"`
-	SenderUsername string `json:"sender_username,omitempty"`
-	ID uuid.UUID `json:"id,omitempty"`
-	CreatedAt time.Time `json:"created_at,omitempty"`
+	SenderID       uuid.UUID `json:"sender_id,omitempty"`
+	SenderUsername string    `json:"sender_username,omitempty"`
+	ID             uuid.UUID `json:"id,omitempty"`
+	CreatedAt      time.Time `json:"created_at,omitempty"`
 }
 
 func TestWSIntegration(t *testing.T) {
@@ -99,19 +101,19 @@ func TestWSIntegration(t *testing.T) {
 	msgContent := "Hello, World!"
 	allowedOrigin := "https://example.com"
 	user := &db.User{
-		ID: userID,
-		Username: username,
-		Email: fmt.Sprintf("%s@example.com", username),
+		ID:           userID,
+		Username:     username,
+		Email:        fmt.Sprintf("%s@example.com", username),
 		PasswordHash: "hashedpassword",
-		CreatedAt: time.Now(),
+		CreatedAt:    time.Now(),
 	}
 	if err := testRepo.CreateUser(context.Background(), user); err != nil {
 		t.Fatalf("failed to create user: %v", err)
 	}
 
 	conv := &db.Conversation{
-		ID: convID,
-		Title: "Test Conversation",
+		ID:        convID,
+		Title:     "Test Conversation",
 		CreatedAt: time.Now(),
 	}
 	if err := testRepo.CreateConversation(context.Background(), conv); err != nil {
@@ -132,21 +134,22 @@ func TestWSIntegration(t *testing.T) {
 		hub.Stop()
 		<-hub.Done()
 	}()
-		
+
 	publisher := NewLocalPublisher(hub)
 	subscriptionService := service.NewSubscriptionService(testRepo)
-	messageService := service.NewMessageService(testRepo, publisher)	
+	messageService := service.NewMessageService(testRepo, publisher)
 	realtimeHandler := NewRealtimeHandler(hub, subscriptionService, messageService)
-
+	authMiddleware := middleware.JWTMiddleware(maker)
 	mux := http.NewServeMux()
-	mux.Handle("/ws", NewWSHandler(realtimeHandler, maker, []string{allowedOrigin}))
+	mux.Handle("/ws", authMiddleware(NewWSHandler(realtimeHandler, maker, []string{allowedOrigin})) )
 	server := httptest.NewServer(mux)
 	defer server.Close()
-	
+
 	dialer := websocket.Dialer{}
-	wsURL := "ws" + strings.TrimPrefix(server.URL, "http") + "/ws" + "?token=" + token
+	wsURL := "ws" + strings.TrimPrefix(server.URL, "http") + "/ws"
 	header := http.Header{}
 	header.Set("Origin", allowedOrigin)
+	header.Add("Cookie", fmt.Sprintf("access_token=%s", token))
 	conn, resp, err := dialer.Dial(wsURL, header)
 	if err != nil {
 		if resp != nil {
@@ -161,7 +164,7 @@ func TestWSIntegration(t *testing.T) {
 	}()
 
 	if err := conn.WriteJSON(wsIncomingMessage{
-		Type: "subscribe",
+		Type:           "subscribe",
 		ConversationID: convID,
 	}); err != nil {
 		t.Fatalf("failed to send subscribe message: %v", err)
@@ -176,8 +179,8 @@ func TestWSIntegration(t *testing.T) {
 	}
 
 	if err := conn.WriteJSON(wsIncomingMessage{
-		Type: "message",
-		Content: msgContent,
+		Type:           "message",
+		Content:        msgContent,
 		ConversationID: convID,
 	}); err != nil {
 		t.Fatalf("failed to send message: %v", err)
@@ -208,4 +211,4 @@ func TestWSIntegration(t *testing.T) {
 		}
 	}
 
-}	
+}

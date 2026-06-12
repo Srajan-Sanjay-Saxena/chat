@@ -7,9 +7,10 @@ import (
 	"chat-v2/repository"
 	"encoding/json"
 	"errors"
-	"github.com/google/uuid"
 	"net/http"
 	"time"
+
+	"github.com/google/uuid"
 )
 
 type SignUpRequest struct {
@@ -155,18 +156,27 @@ func LoginHandler(repo *repository.Repository, maker *helper.JWTMaker) http.Hand
 			writeJSONError(w, http.StatusInternalServerError, "Failed to create token")
 			return
 		}
-
+		http.SetCookie(w, &http.Cookie{
+			Name:     "access_token",
+			Value:    token,
+			Expires:  now.Add(time.Hour * 2),
+			Path:     "/api/",
+			HttpOnly: true,
+			Secure:   true,
+			SameSite: http.SameSiteLaxMode,
+		})
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
+		
 		json.NewEncoder(w).Encode(map[string]string{
 			"status":     "Login successful",
 			"user_id":    user.ID.String(),
 			"username":   user.Username,
 			"email":      user.Email,
 			"created_at": user.CreatedAt.Format(time.RFC3339),
-			"token":      token,
 			"expires_at": now.Add(time.Hour * 24).Format(time.RFC3339),
 		})
+
 	})
 }
 
@@ -182,12 +192,12 @@ func MeHandler(repo *repository.Repository) http.Handler {
 
 		userID, ok := helper.GetUserFromContext(r.Context())
 		if !ok {
-			logger.Log.Debug("Failed to get user from context in convCreateHandler")
+			logger.Log.Debug("Failed to get user from context in MeHandler")
 			writeJSONError(w, http.StatusUnauthorized, "Unauthorized: user not found in context")
 			return
 		}
-		
-		user,err := repo.GetUserByID(r.Context(), userID)
+
+		user, err := repo.GetUserByID(r.Context(), userID)
 		if err != nil {
 			logger.Log.Error("Failed to get user by ID in MeHandler", "user_id", userID, "error", err)
 			writeJSONError(w, http.StatusInternalServerError, "Failed to get user information")
@@ -202,6 +212,34 @@ func MeHandler(repo *repository.Repository) http.Handler {
 			"email":      user.Email,
 			"created_at": user.CreatedAt.Format(time.RFC3339),
 		})
-		
+
+	})
+}
+
+func LogoutHandler() http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Method check
+		if r.Method != http.MethodPost {
+			logger.Log.Debug("Invalid method for LogoutHandler", "method", r.Method)
+			writeJSONError(w, http.StatusMethodNotAllowed, "Method not allowed")
+			return
+		}
+
+		http.SetCookie(w, &http.Cookie{
+			Name:     "access_token",
+			Value:    "",
+			Expires:  time.Unix(0, 0),
+			Path:     "/api/",
+			HttpOnly: true,
+			Secure:   true,
+			SameSite: http.SameSiteLaxMode,
+		})
+
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		json.NewEncoder(w).Encode(map[string]string{
+			"status": "Logout successful",
+		})
+
 	})
 }

@@ -4,11 +4,12 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"github.com/golang-jwt/jwt/v5"
-	"github.com/google/uuid"
 	"net/http"
 	"strings"
 	"time"
+
+	"github.com/golang-jwt/jwt/v5"
+	"github.com/google/uuid"
 	passwordvalidator "github.com/wagslane/go-password-validator"
 )
 
@@ -137,23 +138,17 @@ func (maker *JWTMaker) VerifyToken(tokenStr string) (*UserClaims, error) {
 
 func ExtractBearerToken(r *http.Request) (string, error) {
 	// Extract the Authorization header from the HTTP request
-	authHeader := r.Header.Get("Authorization")
-	if authHeader == "" {
-		return "", fmt.Errorf("authorization header is missing")
+	cookie, err := r.Cookie("access_token")
+	if err != nil {
+		return "", fmt.Errorf("failed to get access_token cookie: %w", err)
 	}
 
-	// Check if the Authorization header is in the correct format (Bearer token)
-	parts := strings.SplitN(authHeader, " ", 2)
-	if len(parts) != 2 || !strings.EqualFold(parts[0], "Bearer") {
-		return "", fmt.Errorf("authorization header format must be 'Bearer {token}'")
+	token := cookie.Value
+	if token == "" {
+		return "", fmt.Errorf("access_token cookie is empty: %w", jwt.ErrTokenMalformed)
 	}
 
-	// check if token is empty
-	if strings.TrimSpace(parts[1]) == "" {
-		return "", fmt.Errorf("token cannot be empty")
-	}
-
-	return parts[1], nil
+	return token, nil
 }
 
 func JWTVerifier(r *http.Request, maker *JWTMaker) (uuid.UUID, error) {
