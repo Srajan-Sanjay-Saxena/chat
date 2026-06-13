@@ -15,12 +15,14 @@ type inMessage struct {
 	Type           string    `json:"type"`
 	ConversationID uuid.UUID `json:"conversation_id"`
 	Content        string    `json:"content"`
+	Username	   string    `json:"username,omitempty"`
 }
 
 type outMessage struct {
 	Type           string    `json:"type"`
 	ID             uuid.UUID `json:"id"`
 	SenderID       uuid.UUID `json:"sender_id"`
+	SenderUsername string    `json:"sender_username"`
 	ConversationID uuid.UUID `json:"conversation_id"`
 	Content        string    `json:"content"`
 	CreatedAt      time.Time `json:"created_at"`
@@ -78,7 +80,7 @@ func (client *client) readPump(messageService *service.MessageService) {
 			// Use a context with timeout for the message creation to avoid hanging if the database is slow
 			msgctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 
-			outMsg, err := messageService.CreateMessage(msgctx, client.userID, inMsg.ConversationID, inMsg.Content)
+			outMsg, err := messageService.CreateMessage(msgctx, client.userID, inMsg.ConversationID, inMsg.Content, inMsg.Username)
 			if err != nil {
 				if err == service.ErrNotParticipant {
 					logger.Log.Warn("client is not a participant for message publish", "user_id", client.userID, "conversation_id", inMsg.ConversationID)

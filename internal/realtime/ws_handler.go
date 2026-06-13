@@ -95,7 +95,7 @@ func (h *WSHandler) HandleWsConnection(conn *websocket.Conn, userID uuid.UUID, u
 		username:  username,
 		closeOnce: sync.Once{},
 	}
-
+	
 	go client.writePump()
 	go client.readPump(h.realtimeHandler)
 }

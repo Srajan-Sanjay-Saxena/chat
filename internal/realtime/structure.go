@@ -6,7 +6,7 @@ import (
 	"sync"
 	"github.com/google/uuid"
 	"github.com/gorilla/websocket"	
-	// "time"
+	"time"
 	"encoding/json"
 )
 
@@ -16,8 +16,8 @@ type client struct {
 	userID				  uuid.UUID
 	username			  string
 	closeOnce			  sync.Once
-	// mu					  sync.Mutex
-	// lastActive			  time.Time
+	mu					  sync.Mutex
+	lastActive			  time.Time
 }
 
 type subscriptionRequest struct {
@@ -86,6 +86,14 @@ func (c *client) Close() {
 		}
 	})
 	
+}
+
+func (c *client) UpdateLastActive() {
+	// Mutex to ensure thread-safe updates to lastActive timestamp
+	// Because same client instance can be accessed by multiple goroutines (e.g. readPump, writePump, and presence tracking)
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.lastActive = time.Now()
 }
 
 func (h *Hub) handleUnregister(client *client) {
@@ -224,4 +232,27 @@ func (h *Hub) Stop() {
 
 func (h *Hub) Done() <-chan struct{} {
 	return h.done
+}
+
+func (h *Hub) StartIdleTimeoutChecker(idleTimeout, checkInterval time.Duration) {
+	ticker := time.NewTicker(checkInterval)
+	for {
+		select {
+		case <-ticker.C:
+			now := time.Now()
+			for client := range h.clients {
+				client.mu.Lock()
+				lastActive := client.lastActive
+				client.mu.Unlock()
+				if now.Sub(lastActive) > idleTimeout {
+					logger.Log.Info("Closing idle client connection", "user_id", client.userID)
+					h.handleUnregister(client)
+				}
+			}
+		case <-h.stop:
+			// when stop channel is closed, stop the ticker and exit the goroutine
+			ticker.Stop()
+			return
+		}
+	}
 }

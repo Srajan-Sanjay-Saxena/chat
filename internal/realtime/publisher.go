@@ -6,7 +6,7 @@ import (
 	"context"
 	"encoding/json"
 	"github.com/google/uuid"
-	"chat-v2/db"
+	// "chat-v2/db"
 	"time"
 )
 
@@ -14,10 +14,10 @@ type outMessage struct {
 	Type           string    `json:"type"`
 	ID             uuid.UUID    `json:"id"`
 	SenderID       uuid.UUID    `json:"sender_id"`
-	SenderUsername   string    `json:"sender_username"`
 	ConversationID uuid.UUID    `json:"conversation_id"`
 	Content        string    `json:"content"`
 	CreatedAt      time.Time   `json:"created_at"`
+	SenderUsername string    `json:"sender_username"`
 }
 
 type LocalPublisher struct {
@@ -28,7 +28,7 @@ func NewLocalPublisher(hub *Hub) service.EventPublisher {
 	return &LocalPublisher{hub: hub}
 }
 
-func (p *LocalPublisher) PublishMessage(ctx context.Context, msg *db.Message) error {
+func (p *LocalPublisher) PublishMessage(ctx context.Context, msg *service.OutMessage) error {
 	if p == nil || p.hub == nil || msg == nil {
 		return nil
 	}
@@ -37,10 +37,10 @@ func (p *LocalPublisher) PublishMessage(ctx context.Context, msg *db.Message) er
 		Type:           "message",
 		ID:             msg.ID,
 		SenderID:       msg.SenderID,
+		SenderUsername: msg.SenderUsername,
 		ConversationID: msg.ConversationID,
 		Content:        msg.Content,
 		CreatedAt:      msg.CreatedAt,
-		SenderUsername: msg.SenderUsername,
 	}
 
 	messageBytes, err := json.Marshal(outMsg)

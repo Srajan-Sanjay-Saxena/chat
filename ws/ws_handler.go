@@ -46,6 +46,7 @@ type wsHandler struct {
 
 func (h *wsHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	// Method check
+	logger.Log.Info("WebSocket connection attempt", "method", r.Method, "remote_addr", r.RemoteAddr)
 	if r.Method != http.MethodGet {
 		logger.Log.Warn("WebSocket connection attempt with invalid method", "method", r.Method)
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
@@ -67,7 +68,7 @@ func (h *wsHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 
 	userID := claims.ID
-
+	logger.Log.Info("WebSocket connection established", "user_id", userID)
 	conn, err := h.upgrader.Upgrade(w, r, nil)
 	if err != nil {
 		logger.Log.Error("Failed to upgrade to WebSocket", "error", err)

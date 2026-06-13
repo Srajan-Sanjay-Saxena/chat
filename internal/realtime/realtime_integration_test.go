@@ -89,7 +89,6 @@ type wsOutgoingMessage struct {
 	Content        string    `json:"content,omitempty"`
 	ConversationID uuid.UUID `json:"conversation_id,omitempty"`
 	SenderID       uuid.UUID `json:"sender_id,omitempty"`
-	SenderUsername string    `json:"sender_username,omitempty"`
 	ID             uuid.UUID `json:"id,omitempty"`
 	CreatedAt      time.Time `json:"created_at,omitempty"`
 }
@@ -97,7 +96,7 @@ type wsOutgoingMessage struct {
 func TestWSIntegration(t *testing.T) {
 	userID := uuid.New()
 	convID := uuid.New()
-	username := "testuser"
+	username := fmt.Sprintf("user_%d", time.Now().UnixNano())
 	msgContent := "Hello, World!"
 	allowedOrigin := "https://example.com"
 	user := &db.User{

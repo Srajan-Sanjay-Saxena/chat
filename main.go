@@ -9,7 +9,7 @@ import (
 	"chat-v2/helper"
 	"chat-v2/logger"
 	"chat-v2/repository"
-	"chat-v2/ws"
+	"chat-v2/internal/realtime"
 	"context"
 	"fmt"
 	"log"
@@ -18,8 +18,8 @@ import (
 	"os/signal"
 	"syscall"
 	"time"
-
-	"github.com/google/uuid"
+	"chat-v2/service"
+	// "github.com/google/uuid"
 )
 
 func main() {
@@ -78,9 +78,18 @@ func main() {
 	logger.Log.Info("JWT maker initialized")
 
 	// Hub for managing WebSocket clients and broadcasting messages
-	hub := ws.NewHub(presenceStore)
-	go hub.Run()                                          // Start the hub in a separate goroutine
-	go hub.StartIdleSweeper(5*time.Minute, 1*time.Minute) // Start sweeper with 5 min idle timeout and 1 min check interval
+	// hub := ws.NewHub(presenceStore)
+	// go hub.Run()                                          // Start the hub in a separate goroutine
+	// go hub.StartIdleSweeper(5*time.Minute, 1*time.Minute) // Start sweeper with 5 min idle timeout and 1 min check interval
+
+	hub := realtime.NewHub()
+	go hub.Run()
+	go hub.StartIdleTimeoutChecker(5*time.Minute, 1*time.Minute)
+	publisher := realtime.NewLocalPublisher(hub)
+	subscriptionService := service.NewSubscriptionService(repo)
+	messageService := service.NewMessageService(repo, publisher)
+	realtimeHandler := realtime.NewRealtimeHandler(hub, subscriptionService, messageService)
+
 	logger.Log.Info("WebSocket hub started")
 
 	// Start the server
@@ -91,6 +100,7 @@ func main() {
 	// Authentication routes
 	mux.Handle("/api/signup", handler.SignUpHandler(repo))
 	mux.Handle("/api/login", handler.LoginHandler(repo, maker))
+	mux.Handle("/api/logout", authMiddleware(handler.LogoutHandler()))
 	logger.Log.Info("Authentication handlers registered under /signup and /login")
 	// Conversation routes
 	mux.Handle("/api/me", authMiddleware(handler.MeHandler(repo)))
@@ -105,12 +115,13 @@ func main() {
 	// WebSocket route
 	mux.Handle("/api/past_messages", authMiddleware(handler.MessageHandler(repo)))
 	logger.Log.Info("Message handler registered at /past_messages")
-	mux.Handle("/ws", ws.NewWebSocketHandler(repo, hub, maker, cfg.WSAllowedOrigins,
-		func(ctx context.Context, conversationID, userID uuid.UUID) (bool, error) {
-			return repo.IsParticipant(ctx, conversationID, userID)
-		},
-	))
+	// mux.Handle("/ws", ws.NewWebSocketHandler(repo, hub, maker, cfg.WSAllowedOrigins,
+	// 	func(ctx context.Context, conversationID, userID uuid.UUID) (bool, error) {
+	// 		return repo.IsParticipant(ctx, conversationID, userID)
+	// 	},
+	// ))
 
+	mux.Handle("/api/ws", authMiddleware(realtime.NewWSHandler(realtimeHandler, maker, cfg.WSAllowedOrigins)))
 	mux.Handle("/api/presence", authMiddleware(handler.PresenceHandler(repo, presenceStore)))
 
 	// Temporary migration logic

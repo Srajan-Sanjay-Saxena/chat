@@ -9,7 +9,8 @@ import (
 	"chat-v2/helper"
 	"chat-v2/logger"
 	"chat-v2/repository"
-	"chat-v2/ws"
+	// "chat-v2/ws"
+	"chat-v2/internal/realtime"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -120,7 +121,7 @@ func TestChatFlow_E2E(t *testing.T) {
 	// }
 	// reset()
 
-	hub := ws.NewHub(presenceStore)
+	hub := realtime.NewHub()
 	defer func() {
 		hub.Stop()
 		<-hub.Done()
@@ -283,7 +284,7 @@ func TestE2E_CreatePrivateByUsernames(t *testing.T) {
 	// }
 	// reset()
 
-	hub := ws.NewHub(presenceStore)
+	hub := realtime.NewHub()
 	defer func() {
 		hub.Stop()
 		<-hub.Done()

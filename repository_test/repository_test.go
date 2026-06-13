@@ -193,7 +193,6 @@ func TestFlow(t *testing.T) {
 		ID:             uuid.New(),
 		ConversationID: conversation.ID,
 		SenderID:       user1.ID,
-		SenderUsername: user1.Username,
 		Content:        "Hello, world!",
 		CreatedAt:      time.Now(),
 	}
@@ -208,7 +207,7 @@ func TestFlow(t *testing.T) {
 		t.Fatalf("Failed to get messages by conversation ID: %v", err)
 	}
 
-	if len(msgResp.Messages) != 1 || (msgResp.Messages[0].ID != message.ID || msgResp.Messages[0].Content != message.Content || msgResp.Messages[0].SenderID != message.SenderID || msgResp.Messages[0].SenderUsername != message.SenderUsername) {
+	if len(msgResp.Messages) != 1 || (msgResp.Messages[0].ID != message.ID || msgResp.Messages[0].Content != message.Content || msgResp.Messages[0].SenderID != message.SenderID ) {
 		t.Errorf("Fetched messages do not match created message")
 	}
 
@@ -256,7 +255,6 @@ func TestMessagePaginationCursor(t *testing.T) {
 			ID:             uuid.New(),
 			ConversationID: conversation.ID,
 			SenderID:       user.ID,
-			SenderUsername: user.Username,
 			Content:        fmt.Sprintf("msg %d", i),
 			CreatedAt:      time.Now().Add(time.Duration(-i) * time.Second),
 		}

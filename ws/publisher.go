@@ -1,7 +1,7 @@
 package ws
 
 import (
-	"chat-v2/db"
+	// "chat-v2/db"
 	"chat-v2/logger"
 	"chat-v2/service"
 	"context"
@@ -16,7 +16,7 @@ func NewLocalPublisher(hub *Hub) service.EventPublisher {
 	return &LocalPublisher{hub: hub}
 }
 
-func (p *LocalPublisher) PublishMessage(ctx context.Context, msg *db.Message) error {
+func (p *LocalPublisher) PublishMessage(ctx context.Context, msg *service.OutMessage) error {
 	if p == nil || p.hub == nil || msg == nil {
 		return nil
 	}

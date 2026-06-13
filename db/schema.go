@@ -18,7 +18,6 @@ type User struct {
 type Message struct {
 	ID             uuid.UUID `json:"id"`
 	SenderID       uuid.UUID `json:"sender_id"`
-	SenderUsername string    `json:"sender_username"`
 	ConversationID uuid.UUID `json:"conversation_id"`
 	Content        string    `json:"content"`
 	CreatedAt      time.Time `json:"created_at"`

@@ -171,7 +171,6 @@ func ResetSchema(DB *pgxpool.Pool, schemaName string) error {
 		id uuid primary key default uuid_generate_v4(),
 		conversation_id uuid not null references conversations(id) on delete cascade,
 		sender_id uuid not null references users(id) on delete cascade,
-		sender_username text not null,
 		content text not null,
 		created_at timestamptz not null default now()
 	)`,
