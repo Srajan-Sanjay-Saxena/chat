@@ -24,7 +24,7 @@ type LoginRequest struct {
 	Password string `json:"password"`
 }
 
-func SignUpHandler(repo *repository.Repository) http.Handler {
+func (h *Handler)SignUpHandler() http.Handler {
 
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// Method check
@@ -84,7 +84,7 @@ func SignUpHandler(repo *repository.Repository) http.Handler {
 		}
 
 		// Create user
-		if err := repo.CreateUser(r.Context(), user); err != nil {
+		if err := h.Repo.CreateUser(r.Context(), user); err != nil {
 			// Check if the error is due to duplicate username
 
 			if errors.Is(err, repository.ErrUserExists) {
@@ -110,7 +110,7 @@ func SignUpHandler(repo *repository.Repository) http.Handler {
 	})
 }
 
-func LoginHandler(repo *repository.Repository, maker *helper.JWTMaker) http.Handler {
+func (h *Handler)LoginHandler() http.Handler {
 
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// Method check
@@ -135,7 +135,7 @@ func LoginHandler(repo *repository.Repository, maker *helper.JWTMaker) http.Hand
 		}
 
 		// Get user by username
-		user, err := repo.GetUserByUsername(r.Context(), req.Username)
+		user, err := h.Repo.GetUserByUsername(r.Context(), req.Username)
 		if err != nil || user == nil {
 			logger.Log.Error("User not found", "username", req.Username, "error", err)
 			writeJSONError(w, http.StatusUnauthorized, "Invalid username or password")
@@ -150,7 +150,7 @@ func LoginHandler(repo *repository.Repository, maker *helper.JWTMaker) http.Hand
 		}
 
 		now := time.Now()
-		token, err := maker.CreateToken(user.ID, time.Hour*24)
+		token, err := h.Maker.CreateToken(user.ID, time.Hour*24)
 		if err != nil {
 			logger.Log.Error("Failed to create token for user", "username", req.Username, "error", err)
 			writeJSONError(w, http.StatusInternalServerError, "Failed to create token")
@@ -180,7 +180,7 @@ func LoginHandler(repo *repository.Repository, maker *helper.JWTMaker) http.Hand
 	})
 }
 
-func MeHandler(repo *repository.Repository) http.Handler {
+func (h *Handler)MeHandler() http.Handler {
 
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// Method check
@@ -197,7 +197,7 @@ func MeHandler(repo *repository.Repository) http.Handler {
 			return
 		}
 
-		user, err := repo.GetUserByID(r.Context(), userID)
+		user, err := h.Repo.GetUserByID(r.Context(), userID)
 		if err != nil {
 			logger.Log.Error("Failed to get user by ID in MeHandler", "user_id", userID, "error", err)
 			writeJSONError(w, http.StatusInternalServerError, "Failed to get user information")
@@ -216,7 +216,7 @@ func MeHandler(repo *repository.Repository) http.Handler {
 	})
 }
 
-func LogoutHandler() http.Handler {
+func (h *Handler)LogoutHandler() http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// Method check
 		if r.Method != http.MethodPost {
@@ -243,3 +243,5 @@ func LogoutHandler() http.Handler {
 
 	})
 }
+
+

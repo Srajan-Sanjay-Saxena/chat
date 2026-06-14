@@ -25,7 +25,7 @@ import (
 //   - The `before` cursor retrieves older messages.
 //   - `limit` defaults to 30 and is capped by the repository layer.
 
-func MessageHandler(repo *repository.Repository) http.Handler {
+func (h *Handler)MessageHandler() http.Handler {
 	
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet {
@@ -55,7 +55,7 @@ func MessageHandler(repo *repository.Repository) http.Handler {
 			return
 		}
 
-		isParticipant, err := repo.IsParticipant(r.Context(), conversationID, userID)
+		isParticipant, err := h.Repo.IsParticipant(r.Context(), conversationID, userID)
 		if err != nil {
 			logger.Log.Error("Failed to check participant status in MessageHandler", "conversation_id", conversationID, "user_id", userID, "error", err)
 			writeJSONError(w, http.StatusInternalServerError, "Failed to check participant status")
@@ -89,7 +89,7 @@ func MessageHandler(repo *repository.Repository) http.Handler {
 
 		var msgResp *repository.MessageResponse
 
-		msgResp, err = repo.GetMessagesByConversationID(r.Context(), conversationID, before, limit)
+		msgResp, err = h.Repo.GetMessagesByConversationID(r.Context(), conversationID, before, limit)
 		if err != nil {
 			logger.Log.Error("Failed to fetch messages in MessageHandler", "conversation_id", conversationID, "user_id", userID, "error", err)
 			writeJSONError(w, http.StatusInternalServerError, "Failed to fetch messages")

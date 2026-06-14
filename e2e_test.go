@@ -128,16 +128,21 @@ func TestChatFlow_E2E(t *testing.T) {
 	}()
 	go hub.Run()
 
+	h := &handler.Handler{
+		Repo:  testRepo,
+		Maker: maker,
+	}
+
 	authMiddleware := middleware.JWTMiddleware(maker)
 	mux := http.NewServeMux()
-	mux.Handle("/signup", handler.SignUpHandler(testRepo))
-	mux.Handle("/login", handler.LoginHandler(testRepo, maker))
-	mux.Handle("/conversation/create", authMiddleware(handler.ConvCreateHandler(testRepo)))
-	mux.Handle("/conversation/list", authMiddleware(handler.ConvListHandler(testRepo)))
-	mux.Handle("/conversation/join", authMiddleware(handler.ConversationJoinHandler(testRepo)))
-	mux.Handle("/conversation/leave", authMiddleware(handler.ConversationLeaveHandler(testRepo)))
-	mux.Handle("/conversation/members", authMiddleware(handler.ConvMemberListHandler(testRepo)))
-	mux.Handle("/conversation/messages", authMiddleware(handler.MessageHandler(testRepo)))
+	mux.Handle("/signup", h.SignUpHandler())
+	mux.Handle("/login", h.LoginHandler())
+	mux.Handle("/conversation/create", authMiddleware(h.ConvCreateHandler()))
+	mux.Handle("/conversation/list", authMiddleware(h.ConvListHandler()))
+	mux.Handle("/conversation/join", authMiddleware(h.ConversationJoinHandler()))
+	mux.Handle("/conversation/leave", authMiddleware(h.ConversationLeaveHandler()))
+	mux.Handle("/conversation/members", authMiddleware(h.ConvMemberListHandler()))
+	mux.Handle("/conversation/messages", authMiddleware(h.MessageHandler()))
 	server := httptest.NewServer(mux)
 	defer server.Close()
 
@@ -290,12 +295,17 @@ func TestE2E_CreatePrivateByUsernames(t *testing.T) {
 		<-hub.Done()
 	}()
 	go hub.Run()
+	
+	h := &handler.Handler{
+		Repo:  testRepo,
+		Maker: maker,
+	}
 
 	authMiddleware := middleware.JWTMiddleware(maker)
 	mux := http.NewServeMux()
-	mux.Handle("/signup", handler.SignUpHandler(testRepo))
-	mux.Handle("/login", handler.LoginHandler(testRepo, maker))
-	mux.Handle("/conversation/create", authMiddleware(handler.ConvCreateHandler(testRepo)))
+	mux.Handle("/signup", h.SignUpHandler())
+	mux.Handle("/login", h.LoginHandler())
+	mux.Handle("/conversation/create", authMiddleware(h.ConvCreateHandler()))
 	server := httptest.NewServer(mux)
 	defer server.Close()
 

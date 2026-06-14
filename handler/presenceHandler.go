@@ -1,14 +1,13 @@
 package handler
 import (
 	"net/http"
-	"chat-v2/repository"
 	"chat-v2/logger"
 	"chat-v2/helper"
 	"chat-v2/db/redis"
 	"encoding/json"
 )
 
-func PresenceHandler(repo *repository.Repository, p *redis.PresenceStore) http.Handler {
+func (h *Handler)PresenceHandler(p *redis.PresenceStore) http.Handler {
 
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet {
@@ -24,7 +23,7 @@ func PresenceHandler(repo *repository.Repository, p *redis.PresenceStore) http.H
 			return
 		}
 
-		friends, err := repo.GetFriends(r.Context(), userID)
+		friends, err := h.Repo.GetFriends(r.Context(), userID)
 		if err != nil {
 			logger.Log.Error("Failed to get friends for presenceHandler", "user_id", userID, "error", err)
 			writeJSONError(w, http.StatusInternalServerError, "Failed to get friends")

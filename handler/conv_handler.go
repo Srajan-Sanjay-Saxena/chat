@@ -15,16 +15,16 @@ import (
 	"github.com/google/uuid"
 )
 
-func ConversationJoinHandler(repo *repository.Repository) http.Handler {
+func (h *Handler)ConversationJoinHandler() http.Handler {
 
-	return conversationMembershipHandler(repo, "join")
+	return h.conversationMembershipHandler("join")
 }
 
-func ConversationLeaveHandler(repo *repository.Repository) http.Handler {
-	return conversationMembershipHandler(repo, "leave")
+func (h *Handler)ConversationLeaveHandler() http.Handler {
+	return h.conversationMembershipHandler("leave")
 }
 
-func conversationMembershipHandler(repo *repository.Repository, operation string) http.Handler {
+func (h *Handler)conversationMembershipHandler(operation string) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// Method check
 		if r.Method != http.MethodPost {
@@ -51,14 +51,14 @@ func conversationMembershipHandler(repo *repository.Repository, operation string
 		// Perform the requested operation (join or leave)
 
 		// disallow join/leave for private conversations
-		convObj, err := repo.GetConversationByID(r.Context(), conversationID)
+		convObj, err := h.Repo.GetConversationByID(r.Context(), conversationID)
 		if err == nil && convObj != nil && convObj.Type == "private" {
 			writeJSONError(w, http.StatusForbidden, "cannot join or leave private conversations")
 			return
 		}
 
 		if operation == "join" {
-			err = repo.AddParticipant(r.Context(), conversationID, userID)
+			err = h.Repo.AddParticipant(r.Context(), conversationID, userID)
 			if err != nil {
 				logger.Log.Error("Failed to add participant to conversation in ConversationJoinHandler", "conversation_id", conversationID, "user_id", userID, "error", err)
 				writeJSONError(w, http.StatusInternalServerError, "Failed to join conversation")
@@ -70,7 +70,7 @@ func conversationMembershipHandler(repo *repository.Repository, operation string
 			return
 		}
 
-		err = repo.RemoveParticipant(r.Context(), conversationID, userID)
+		err = h.Repo.RemoveParticipant(r.Context(), conversationID, userID)
 		if err != nil {
 			logger.Log.Error("Failed to remove participant from conversation in ConversationLeaveHandler", "conversation_id", conversationID, "user_id", userID, "error", err)
 			writeJSONError(w, http.StatusInternalServerError, "Failed to leave conversation")
@@ -84,7 +84,7 @@ func conversationMembershipHandler(repo *repository.Repository, operation string
 	})
 }
 
-func ConvListHandler(repo *repository.Repository) http.Handler {
+func (h *Handler)ConvListHandler() http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// Method check
 		if r.Method != http.MethodGet {
@@ -101,7 +101,7 @@ func ConvListHandler(repo *repository.Repository) http.Handler {
 		}
 
 		// Fetch conversations for the user, prefilling the other participant's username for private chats to avoid N+1 queries.
-		conversations, err := repo.GetConversationsWithOtherUsernameByUserID(r.Context(), userID)
+		conversations, err := h.Repo.GetConversationsWithOtherUsernameByUserID(r.Context(), userID)
 		if err != nil {
 			logger.Log.Error("Failed to fetch conversations for user in convListHandler", "user_id", userID, "error", err)
 			writeJSONError(w, http.StatusInternalServerError, "Failed to fetch conversations")
@@ -144,7 +144,7 @@ func ConvListHandler(repo *repository.Repository) http.Handler {
 //	  "created": true // indicates whether a new conversation was created or an existing one was returned (only applicable for private conversations)
 //	}
 
-func ConvCreateHandler(repo *repository.Repository) http.Handler {
+func (h *Handler)ConvCreateHandler() http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// Method check
 		if r.Method != http.MethodPost {
@@ -188,7 +188,7 @@ func ConvCreateHandler(repo *repository.Repository) http.Handler {
 			return
 		}
 
-		currentUser, err := repo.GetUserByID(r.Context(), userID)
+		currentUser, err := h.Repo.GetUserByID(r.Context(), userID)
 		if err != nil {
 			logger.Log.Error("Failed to fetch current user in convCreateHandler", "user_id", userID, "error", err)
 			writeJSONError(w, http.StatusInternalServerError, "Failed to create conversation")
@@ -255,7 +255,7 @@ func ConvCreateHandler(repo *repository.Repository) http.Handler {
 			}
 
 			if conv.CanonicalName != "" {
-				if existing, err := repo.GetConversationByCanonicalName(r.Context(), conv.CanonicalName); err == nil && existing != nil {
+				if existing, err := h.Repo.GetConversationByCanonicalName(r.Context(), conv.CanonicalName); err == nil && existing != nil {
 					w.Header().Set("Content-Type", "application/json")
 					w.WriteHeader(http.StatusOK)
 					_ = json.NewEncoder(w).Encode(map[string]any{"conversation": existing, "created": false})
@@ -264,10 +264,10 @@ func ConvCreateHandler(repo *repository.Repository) http.Handler {
 			}
 		}
 
-		err = repo.CreateConversationWithParticipantsByUsernames(r.Context(), conv, usernameOrder)
+		err = h.Repo.CreateConversationWithParticipantsByUsernames(r.Context(), conv, usernameOrder)
 		if err != nil {
 			if errors.Is(err, repository.ErrConversationExists) && conv.CanonicalName != "" {
-				if existing, err2 := repo.GetConversationByCanonicalName(r.Context(), conv.CanonicalName); err2 == nil && existing != nil {
+				if existing, err2 := h.Repo.GetConversationByCanonicalName(r.Context(), conv.CanonicalName); err2 == nil && existing != nil {
 					w.Header().Set("Content-Type", "application/json")
 					w.WriteHeader(http.StatusOK)
 					_ = json.NewEncoder(w).Encode(map[string]any{"conversation": existing, "created": false})
@@ -286,7 +286,7 @@ func ConvCreateHandler(repo *repository.Repository) http.Handler {
 	})
 }
 
-func ConvMemberListHandler(repo *repository.Repository) http.Handler {
+func (h *Handler)ConvMemberListHandler() http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// Method check
 		if r.Method != http.MethodGet {
@@ -311,14 +311,14 @@ func ConvMemberListHandler(repo *repository.Repository) http.Handler {
 		}
 
 		// Check if the user is a participant in the conversation
-		statusCode, err := participantCheck(r, repo, conversationID, userID)
+		statusCode, err := participantCheck(r, h.Repo, conversationID, userID)
 		if err != nil {
 			writeJSONError(w, statusCode, err.Error())
 			return
 		}
 
 		// Fetch participants for the conversation
-		participants, err := repo.GetParticipantsByConversationID(r.Context(), conversationID)
+		participants, err := h.Repo.GetParticipantsByConversationID(r.Context(), conversationID)
 		if err != nil {
 			logger.Log.Error("Failed to fetch participants for conversation in convMemberListHandler", "conversation_id", conversationID, "user_id", userID, "error", err)
 			writeJSONError(w, http.StatusInternalServerError, "Failed to fetch participants")

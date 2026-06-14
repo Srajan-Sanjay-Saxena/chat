@@ -1,15 +1,16 @@
 package main
 
 import (
-	"chat-v2/middleware"
+	"chat-v2/handler"
 	"chat-v2/config"
 	"chat-v2/db"
 	"chat-v2/db/redis"
-	"chat-v2/handler"
 	"chat-v2/helper"
-	"chat-v2/logger"
-	"chat-v2/repository"
 	"chat-v2/internal/realtime"
+	"chat-v2/logger"
+	"chat-v2/middleware"
+	"chat-v2/repository"
+	"chat-v2/service"
 	"context"
 	"fmt"
 	"log"
@@ -18,7 +19,6 @@ import (
 	"os/signal"
 	"syscall"
 	"time"
-	"chat-v2/service"
 	// "github.com/google/uuid"
 )
 
@@ -92,28 +92,33 @@ func main() {
 
 	logger.Log.Info("WebSocket hub started")
 
+	h := &handler.Handler{
+		Repo:  repo,
+		Maker: maker,
+	}
+
 	// Start the server
 	mux := http.NewServeMux()
 	authMiddleware := middleware.JWTMiddleware(maker)
 	corsMiddleware := middleware.NewCORSMiddleware(cfg.WSAllowedOrigins)
-	mux.Handle("/health", handler.HealthCheckHandler())
+	mux.Handle("/health", h.HealthCheckHandler())
 	// Authentication routes
-	mux.Handle("/api/signup", handler.SignUpHandler(repo))
-	mux.Handle("/api/login", handler.LoginHandler(repo, maker))
-	mux.Handle("/api/logout", authMiddleware(handler.LogoutHandler()))
+	mux.Handle("/api/signup", h.SignUpHandler())
+	mux.Handle("/api/login", h.LoginHandler())
+	mux.Handle("/api/logout", authMiddleware(h.LogoutHandler()))
 	logger.Log.Info("Authentication handlers registered under /signup and /login")
 	// Conversation routes
-	mux.Handle("/api/me", authMiddleware(handler.MeHandler(repo)))
-	mux.Handle("/api/conversation/join", authMiddleware(handler.ConversationJoinHandler(repo)))
-	mux.Handle("/api/conversation/leave", authMiddleware(handler.ConversationLeaveHandler(repo)))
-	mux.Handle("/api/conversation/create", authMiddleware(handler.ConvCreateHandler(repo)))
-	mux.Handle("/api/conversation/list", authMiddleware(handler.ConvListHandler(repo)))
-	mux.Handle("/api/conversation/members", authMiddleware(handler.ConvMemberListHandler(repo)))
-	mux.Handle("/api/conversation/messages", authMiddleware(handler.MessageHandler(repo)))
+	mux.Handle("/api/me", authMiddleware(h.MeHandler()))
+	mux.Handle("/api/conversation/join", authMiddleware(h.ConversationJoinHandler()))
+	mux.Handle("/api/conversation/leave", authMiddleware(h.ConversationLeaveHandler()))
+	mux.Handle("/api/conversation/create", authMiddleware(h.ConvCreateHandler()))
+	mux.Handle("/api/conversation/list", authMiddleware(h.ConvListHandler()))
+	mux.Handle("/api/conversation/members", authMiddleware(h.ConvMemberListHandler()))
+	mux.Handle("/api/conversation/messages", authMiddleware(h.MessageHandler()))
 	mux.Handle("/api/users/search", authMiddleware(handler.UserSearchHandler(repo)))
 	logger.Log.Info("Conversation handlers registered under /conversation/*")
 	// WebSocket route
-	mux.Handle("/api/past_messages", authMiddleware(handler.MessageHandler(repo)))
+	mux.Handle("/api/past_messages", authMiddleware(h.MessageHandler()))
 	logger.Log.Info("Message handler registered at /past_messages")
 	// mux.Handle("/ws", ws.NewWebSocketHandler(repo, hub, maker, cfg.WSAllowedOrigins,
 	// 	func(ctx context.Context, conversationID, userID uuid.UUID) (bool, error) {
@@ -122,7 +127,7 @@ func main() {
 	// ))
 
 	mux.Handle("/api/ws", authMiddleware(realtime.NewWSHandler(realtimeHandler, maker, cfg.WSAllowedOrigins)))
-	mux.Handle("/api/presence", authMiddleware(handler.PresenceHandler(repo, presenceStore)))
+	mux.Handle("/api/presence", authMiddleware(h.PresenceHandler(presenceStore)))
 
 	// Temporary migration logic
 	if err := helper.Migrate(DB, "public"); err != nil {
