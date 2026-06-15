@@ -24,7 +24,7 @@ type LoginRequest struct {
 	Password string `json:"password"`
 }
 
-func (h *Handler)SignUpHandler() http.Handler {
+func (h *Handler) SignUpHandler() http.Handler {
 
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// Method check
@@ -110,7 +110,7 @@ func (h *Handler)SignUpHandler() http.Handler {
 	})
 }
 
-func (h *Handler)LoginHandler() http.Handler {
+func (h *Handler) LoginHandler() http.Handler {
 
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// Method check
@@ -163,11 +163,12 @@ func (h *Handler)LoginHandler() http.Handler {
 			Path:     "/api/",
 			HttpOnly: true,
 			Secure:   true,
-			SameSite: http.SameSiteLaxMode,
+			// SameSite: http.SameSiteLaxMode,
+			SameSite: http.SameSiteNoneMode,
 		})
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
-		
+
 		json.NewEncoder(w).Encode(map[string]string{
 			"status":     "Login successful",
 			"user_id":    user.ID.String(),
@@ -180,7 +181,7 @@ func (h *Handler)LoginHandler() http.Handler {
 	})
 }
 
-func (h *Handler)MeHandler() http.Handler {
+func (h *Handler) MeHandler() http.Handler {
 
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// Method check
@@ -216,7 +217,7 @@ func (h *Handler)MeHandler() http.Handler {
 	})
 }
 
-func (h *Handler)LogoutHandler() http.Handler {
+func (h *Handler) LogoutHandler() http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// Method check
 		if r.Method != http.MethodPost {
@@ -243,5 +244,3 @@ func (h *Handler)LogoutHandler() http.Handler {
 
 	})
 }
-
-
