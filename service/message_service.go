@@ -16,10 +16,10 @@ var ErrInvalidMessage = errors.New("invalid message")
 
 type MessageService struct {
 	repo          *repository.Repository
-	publisher     EventPublisher
+	publisher     EventBus
 }
 
-func NewMessageService(repo *repository.Repository, publisher EventPublisher) *MessageService {
+func NewMessageService(repo *repository.Repository, publisher EventBus) *MessageService {
 	return &MessageService{repo: repo, publisher: publisher}
 }
 
@@ -83,7 +83,7 @@ func (s *MessageService) CreateMessage(ctx context.Context, userID, conversation
 		return outMsg, nil
 	}
 	// publishStart := time.Now()
-	if err := s.publisher.PublishMessage(ctx, outMsg); err != nil {
+	if err := s.publisher.Publish(ctx, outMsg); err != nil {
 		return nil, err
 	}
 	// logger.Log.Debug("message published to subscribers", "message_id", message.ID, "duration_ms", time.Since(publishStart).Milliseconds())

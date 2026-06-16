@@ -134,7 +134,7 @@ func TestWSIntegration(t *testing.T) {
 		<-hub.Done()
 	}()
 
-	publisher := NewLocalPublisher(hub)
+	publisher := NewLocalBus(hub.Broadcast)
 	subscriptionService := service.NewSubscriptionService(testRepo)
 	messageService := service.NewMessageService(testRepo, publisher)
 	realtimeHandler := NewRealtimeHandler(hub, subscriptionService, messageService)

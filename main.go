@@ -85,7 +85,7 @@ func main() {
 	hub := realtime.NewHub()
 	go hub.Run()
 	go hub.StartIdleTimeoutChecker(5*time.Minute, 1*time.Minute)
-	publisher := realtime.NewLocalPublisher(hub)
+	publisher := realtime.NewLocalBus(hub.Broadcast)
 	subscriptionService := service.NewSubscriptionService(repo)
 	messageService := service.NewMessageService(repo, publisher)
 	realtimeHandler := realtime.NewRealtimeHandler(hub, subscriptionService, messageService)

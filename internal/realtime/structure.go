@@ -42,6 +42,7 @@ type Hub struct {
 	once sync.Once
 	conversationSubscribers map[uuid.UUID]map[*client]struct{}
 	clientSubscriptions map[*client]map[uuid.UUID]struct{}
+	
 }
 
 type RealtimeHandler struct {
@@ -197,6 +198,21 @@ func (h *Hub) handleBroadcast(req broadcastRequest) {
 				h.handleUnregister(client)
 			}
 		}
+	}
+}
+
+func (h *Hub) Broadcast(msg *service.OutMessage) {	
+	if h == nil || msg == nil {
+		return
+	}
+	payload, err := json.Marshal(msg)
+	if err != nil {
+		logger.Log.Error("error marshaling message for broadcast", "error", err, "message_id", msg.ID)
+		return
+	}
+	h.broadcast <- broadcastRequest{
+		message: payload,
+		conversationID: msg.ConversationID,
 	}
 }
 

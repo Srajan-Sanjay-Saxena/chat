@@ -1,10 +1,8 @@
 package realtime
 
 import (
-	"chat-v2/logger"
 	"chat-v2/service"
 	"context"
-	"encoding/json"
 	"github.com/google/uuid"
 	// "chat-v2/db"
 	"time"
@@ -20,40 +18,21 @@ type outMessage struct {
 	SenderUsername string    `json:"sender_username"`
 }
 
-type LocalPublisher struct {
-	hub *Hub
+type LocalBus struct {
+	handler service.MessageHandler
 }
 
-func NewLocalPublisher(hub *Hub) service.EventPublisher {
-	return &LocalPublisher{hub: hub}
+func NewLocalBus(localHandler service.MessageHandler) *LocalBus {
+	return &LocalBus{handler: localHandler}
 }
 
-func (p *LocalPublisher) PublishMessage(ctx context.Context, msg *service.OutMessage) error {
-	if p == nil || p.hub == nil || msg == nil {
-		return nil
-	}
-
-	outMsg := outMessage{
-		Type:           "message",
-		ID:             msg.ID,
-		SenderID:       msg.SenderID,
-		SenderUsername: msg.SenderUsername,
-		ConversationID: msg.ConversationID,
-		Content:        msg.Content,
-		CreatedAt:      msg.CreatedAt,
-	}
-
-	messageBytes, err := json.Marshal(outMsg)
-	if err != nil {
-		logger.Log.Error("error marshalling outgoing message", "error", err)
-		return err
-	}
-
-	select {
-	case <-ctx.Done():
-		return ctx.Err()
-	case p.hub.broadcast <- broadcastRequest{message: messageBytes, conversationID: msg.ConversationID}:
-		logger.Log.Debug("message published to hub broadcast channel", "message_id", msg.ID, "conversation_id", msg.ConversationID)
-		return nil
-	}
+func (b *LocalBus) Publish(ctx context.Context, outMsg *service.OutMessage) error {
+	b.handler(outMsg)
+	return nil;
 }
+
+func (b *LocalBus) Subscribe(ctx context.Context, handler service.MessageHandler) error {
+	b.handler = handler
+	return nil
+}
+
