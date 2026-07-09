@@ -25,15 +25,17 @@ import (
 func main() {
 	fmt.Println("Starting chat-v2 server...")
 
-	// Initialize logger
-	logger.Init()
-
 	// Load configuration
 	cfg, err := config.LoadConfig(".env")
 
 	if err != nil {
-		logger.Log.Error("Failed to load configuration", "error", err)
+		log.Fatalf("cannot load config: %v", err)
 	}
+
+	env := cfg.Env
+
+	// Initialize logger
+	logger.Init(env)
 
 	port := cfg.Port
 	logger.Log.Info("Configuration loaded successfully")

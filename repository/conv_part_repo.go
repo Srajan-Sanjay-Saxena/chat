@@ -3,9 +3,9 @@ package repository
 import (
 	"context"
 	"time"
-	"chat-v2/logger"
 	"github.com/google/uuid"
 	"fmt"
+	"chat-v2/logger"
 )
 
 func (r *Repository) AddParticipant(ctx context.Context, conversationID, userID uuid.UUID) error {

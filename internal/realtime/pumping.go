@@ -1,12 +1,11 @@
 package realtime
 
 import (
-	"chat-v2/logger"
 	"context"
 	"encoding/json"
 	"fmt"
 	"time"
-
+	"chat-v2/logger"
 	"github.com/google/uuid"
 	"github.com/gorilla/websocket"
 )
