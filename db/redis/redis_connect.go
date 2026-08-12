@@ -1,12 +1,14 @@
 package redis
 
 import (
-	"context"
-	"github.com/redis/go-redis/v9"
 	"chat-v2/logger"
+	"context"
 	"fmt"
+	"strings"
 	"time"
+
 	"github.com/google/uuid"
+	"github.com/redis/go-redis/v9"
 )
 
 type PresenceStore struct {
@@ -14,16 +16,20 @@ type PresenceStore struct {
 }
 
 type Presence struct {
-	Online bool
+	Online   bool
 	LastSeen time.Time
 }
 
 type PresenceInfo struct {
 	OnlineMembers []uuid.UUID
-	TotalMembers int
+	TotalMembers  int
 }
 
 func Connect(addr string, Username string, password string, db int) (*redis.Client, error) {
+	if strings.TrimSpace(addr) == "" {
+		return nil, nil
+	}
+
 	RedisClient := redis.NewClient(&redis.Options{
 		Addr:     addr,
 		Password: password,
@@ -53,17 +59,16 @@ func (p *PresenceStore) Close() error {
 }
 
 func (p *PresenceStore) UpdatePresence(ctx context.Context, userID uuid.UUID) error {
-	if p.redisClient == nil {
-		return fmt.Errorf("Redis client is not initialized")
+	if p == nil || p.redisClient == nil {
+		return nil
 	}
 	key := fmt.Sprintf("presence:%s", userID)
 	return p.redisClient.Set(ctx, key, time.Now().Unix(), 2*time.Minute).Err()
 }
 
-
 func (p *PresenceStore) GetPresence(ctx context.Context, userID uuid.UUID) (Presence, error) {
-	if p.redisClient == nil {
-		return Presence{}, fmt.Errorf("Redis client is not initialized")
+	if p == nil || p.redisClient == nil {
+		return Presence{Online: false}, nil
 	}
 	key := fmt.Sprintf("presence:%s", userID)
 	val, err := p.redisClient.Get(ctx, key).Int64()
@@ -73,15 +78,15 @@ func (p *PresenceStore) GetPresence(ctx context.Context, userID uuid.UUID) (Pres
 		}
 		return Presence{}, err
 	}
-	
+
 	return Presence{Online: true, LastSeen: time.Unix(val, 0)}, nil
 }
 
 func (p *PresenceStore) GetMassPresence(ctx context.Context, userIDs []uuid.UUID) (PresenceInfo, error) {
-	if p.redisClient == nil {
-		return PresenceInfo{}, fmt.Errorf("Redis client is not initialized")
+	if p == nil || p.redisClient == nil {
+		return PresenceInfo{}, nil
 	}
-	
+
 	totalMembers := len(userIDs)
 	if totalMembers == 0 {
 		return PresenceInfo{}, nil
@@ -110,6 +115,6 @@ func (p *PresenceStore) GetMassPresence(ctx context.Context, userIDs []uuid.UUID
 
 	return PresenceInfo{
 		OnlineMembers: onlineMembers,
-		TotalMembers: totalMembers,
+		TotalMembers:  totalMembers,
 	}, nil
 }

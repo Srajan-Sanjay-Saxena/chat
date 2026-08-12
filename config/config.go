@@ -1,15 +1,16 @@
 package config
 
 import (
+	"fmt"
 	"os"
 	"strconv"
 	"strings"
-	"fmt"
+
 	"github.com/joho/godotenv"
 )
 
 type Config struct {
-	Env 			string
+	Env              string
 	Port             string
 	DBSource         string
 	JWTSecret        string
@@ -26,15 +27,14 @@ func LoadConfig(envPath string) (*Config, error) {
 		envPath = ".env"
 	}
 	godotenv.Load(envPath) // Load .env file, ignore error if it doesn't exist
-	
+
 	redisDBInt, err := strconv.Atoi(getEnv("REDIS_DB", "0"))
 	if err != nil {
 		redisDBInt = 0
 	}
 
-
 	cfg := &Config{
-		Env:  			  getEnv("ENV", "development"),
+		Env:              getEnv("ENV", "development"),
 		Port:             getEnv("PORT", "8080"),
 		DBSource:         getEnv("DB_SOURCE", ""),
 		JWTSecret:        getEnv("JWT_SECRET", ""),
@@ -51,13 +51,7 @@ func LoadConfig(envPath string) (*Config, error) {
 	if cfg.JWTSecret == "" {
 		return nil, fmt.Errorf("JWT_SECRET is required")
 	}
-	if cfg.RedisAddr == "" {
-		return nil, fmt.Errorf("REDIS_ADDR is required")
-	}
-	if cfg.RedisPassword == "" {
-		return nil, fmt.Errorf("REDIS_PASSWORD is required")
-	}
-	
+
 	return cfg, nil
 }
 

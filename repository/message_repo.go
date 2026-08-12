@@ -25,7 +25,7 @@ type message struct {
 	CreatedAt      time.Time `json:"created_at"`
 }
 
-type messageWithUsername struct {
+type MessageWithUsername struct {
 	ID             uuid.UUID `json:"id"`
 	SenderID       uuid.UUID `json:"sender_id"`
 	ConversationID uuid.UUID `json:"conversation_id"`
@@ -35,7 +35,7 @@ type messageWithUsername struct {
 }
 
 type MessageResponse struct {
-	Messages   []*messageWithUsername
+	Messages   []*MessageWithUsername
 	NextCursor string
 	HasMore    bool
 }
@@ -135,9 +135,9 @@ func (r *Repository) GetMessagesByConversationID(ctx context.Context, conversati
 	}
 	defer rows.Close()
 
-	var messages []*messageWithUsername
+	var messages []*MessageWithUsername
 	for rows.Next() {
-		var msg messageWithUsername
+		var msg MessageWithUsername
 		if err := rows.Scan(&msg.ID, &msg.ConversationID, &msg.Content, &msg.CreatedAt, &msg.SenderUsername, &msg.SenderID); err != nil {
 			return nil, err
 		}

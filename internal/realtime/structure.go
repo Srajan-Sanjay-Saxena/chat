@@ -18,6 +18,7 @@ type client struct {
 	closeOnce			  sync.Once
 	mu					  sync.Mutex
 	lastActive			  time.Time
+	limiter				  *ConnectionLimiter
 }
 
 type subscriptionRequest struct {
@@ -46,16 +47,16 @@ type Hub struct {
 }
 
 type RealtimeHandler struct {
-	hub *Hub
+	hub                 *Hub
 	subscriptionService *service.SubscriptionService
-	messageService *service.MessageService
+	messageService      service.MessageProcessor
 }
 
-func NewRealtimeHandler(hub *Hub, subscriptionService *service.SubscriptionService, messageService *service.MessageService) *RealtimeHandler {
+func NewRealtimeHandler(hub *Hub, subscriptionService *service.SubscriptionService, messageService service.MessageProcessor) *RealtimeHandler {
 	return &RealtimeHandler{
-		hub: hub,
+		hub:                 hub,
 		subscriptionService: subscriptionService,
-		messageService: messageService,
+		messageService:      messageService,
 	}
 }
 

@@ -89,11 +89,33 @@ func (h *Handler)MessageHandler() http.Handler {
 
 		var msgResp *repository.MessageResponse
 
-		msgResp, err = h.Repo.GetMessagesByConversationID(r.Context(), conversationID, before, limit)
-		if err != nil {
-			logger.Log.Error("Failed to fetch messages in MessageHandler", "conversation_id", conversationID, "user_id", userID, "error", err)
-			writeJSONError(w, http.StatusInternalServerError, "Failed to fetch messages")
-			return
+		if before == nil && h.CacheService != nil {
+			cachedMsgs, cacheErr := h.CacheService.GetRecentMessages(r.Context(), conversationID)
+			if cacheErr == nil && len(cachedMsgs) > 0 {
+				repoMsgs := make([]*repository.MessageWithUsername, 0, len(cachedMsgs))
+				for _, cm := range cachedMsgs {
+					repoMsgs = append(repoMsgs, &repository.MessageWithUsername{
+						ID:             cm.ID,
+						ConversationID: cm.ConversationID,
+						SenderID:       cm.SenderID,
+						SenderUsername: cm.SenderUsername,
+						Content:        cm.Content,
+						CreatedAt:      cm.CreatedAt,
+					})
+				}
+				msgResp = &repository.MessageResponse{
+					Messages: repoMsgs,
+				}
+			}
+		}
+
+		if msgResp == nil {
+			msgResp, err = h.Repo.GetMessagesByConversationID(r.Context(), conversationID, before, limit)
+			if err != nil {
+				logger.Log.Error("Failed to fetch messages in MessageHandler", "conversation_id", conversationID, "user_id", userID, "error", err)
+				writeJSONError(w, http.StatusInternalServerError, "Failed to fetch messages")
+				return
+			}
 		}
 
 		msgRespJSON, err := json.Marshal(msgResp)

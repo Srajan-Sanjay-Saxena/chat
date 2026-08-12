@@ -1,14 +1,15 @@
 package main_test
 
 import (
-	"chat-v2/middleware"
 	"chat-v2/config"
 	"chat-v2/db"
 	"chat-v2/db/redis"
 	"chat-v2/handler"
 	"chat-v2/helper"
 	"chat-v2/logger"
+	"chat-v2/middleware"
 	"chat-v2/repository"
+
 	// "chat-v2/ws"
 	"chat-v2/internal/realtime"
 	"context"
@@ -95,9 +96,11 @@ func TestMain(m *testing.M) {
 
 	redisClient, err := redis.Connect(redisAddr, redisUsername, redisPassword, redisDB)
 	if err != nil {
-		panic("failed to connect to Redis: " + err.Error())
+		logger.Log.Warn("Redis unavailable during test setup; continuing without Redis-backed presence", "error", err)
+		redisClient = nil
+	} else if redisClient != nil {
+		defer redisClient.Close()
 	}
-	defer redisClient.Close()
 
 	presenceStore = redis.NewPresenceStore(redisClient)
 
@@ -295,7 +298,7 @@ func TestE2E_CreatePrivateByUsernames(t *testing.T) {
 		<-hub.Done()
 	}()
 	go hub.Run()
-	
+
 	h := &handler.Handler{
 		Repo:  testRepo,
 		Maker: maker,

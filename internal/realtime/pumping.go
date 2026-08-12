@@ -83,6 +83,21 @@ func (client *client) readPump(r *RealtimeHandler) {
 			break
 		}
 
+		if client.limiter != nil && !client.limiter.Allow() {
+			logger.Log.Warn("rate limit exceeded for client frame", "user_id", client.userID)
+			errPayload := map[string]string{
+				"type":    "error",
+				"message": "Rate limit exceeded. Please slow down.",
+			}
+			if errBytes, marshalErr := json.Marshal(errPayload); marshalErr == nil {
+				select {
+				case client.send <- errBytes:
+				default:
+				}
+			}
+			continue
+		}
+
 		inMsg, err := parseAndValidateIncomingMessage(message)
 		if err != nil {
 			logger.Log.Warn("invalid incoming message from client", "user_id", client.userID, "error", err)

@@ -13,19 +13,23 @@ COPY . .
 # Build the binary with optimisations
 RUN CGO_ENABLED=0 GOOS=linux go build -ldflags="-w -s" -o server ./
 
-# Stage 2: Create a tiny runtime image
+# Stage 2: Create a runtime image with Redis and Go app
 FROM alpine:3.19
 
-# Install ca-certificates (useful for HTTPS calls)
-RUN apk --no-cache add ca-certificates
+# Install ca-certificates and redis server
+RUN apk --no-cache add ca-certificates redis
 
 WORKDIR /root/
 
 # Copy the binary from the builder stage
 COPY --from=builder /app/server .
 
-# Expose the port your app listens on (change if needed)
-EXPOSE 8080
+# Copy entrypoint script and set executable permissions
+COPY entrypoint.sh .
+RUN chmod +x entrypoint.sh
 
-# Run the binary
-CMD ["./server"]
+# Expose app port and Redis port
+EXPOSE 8080 6379
+
+# Launch both Redis and application via entrypoint script
+ENTRYPOINT ["./entrypoint.sh"]

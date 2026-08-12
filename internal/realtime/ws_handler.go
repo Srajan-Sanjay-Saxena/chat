@@ -94,6 +94,7 @@ func (h *WSHandler) HandleWsConnection(conn *websocket.Conn, userID uuid.UUID, u
 		userID:    userID,
 		username:  username,
 		closeOnce: sync.Once{},
+		limiter:   NewConnectionLimiter(10, 20),
 	}
 	
 	go client.writePump()

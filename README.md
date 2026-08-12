@@ -45,10 +45,26 @@ go run main.go
 
 ### Run with Docker
 
+The Docker image includes an embedded Redis server. When you start the container, `entrypoint.sh` starts the internal Redis server daemon and then launches the Go app server.
+
 ```bash
 docker build -t chat-backend .
 docker run -p 8080:8080 --env-file .env chat-backend
 ```
+
+### 🧪 Running Tests
+
+To run unit and integration tests (including Redis presence tests):
+
+```bash
+# Run all tests across packages
+go test ./...
+
+# Run Redis presence store tests specifically
+go test -v ./db/redis
+```
+
+For detailed documentation on the internal Redis container setup and architecture, see [docs/redis_container_migration.md](file:///C:/Users/shash/projects/chat/docs/redis_container_migration.md).
 
 ## 🛠️ Tech Stack
 

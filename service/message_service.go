@@ -14,9 +14,13 @@ import (
 var ErrNotParticipant = errors.New("not participant")
 var ErrInvalidMessage = errors.New("invalid message")
 
+type MessageProcessor interface {
+	CreateMessage(ctx context.Context, userID, conversationID uuid.UUID, content, username string) (*OutMessage, error)
+}
+
 type MessageService struct {
-	repo          *repository.Repository
-	publisher     EventBus
+	repo      *repository.Repository
+	publisher EventBus
 }
 
 func NewMessageService(repo *repository.Repository, publisher EventBus) *MessageService {
