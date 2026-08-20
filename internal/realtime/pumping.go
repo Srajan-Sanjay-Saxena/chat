@@ -20,6 +20,7 @@ type incomingMessage struct {
 	ConversationID uuid.UUID `json:"conversation_id"`
 	Content        string    `json:"content"`
 	Username       string    `json:"username,omitempty"`
+	ClientID       string    `json:"client_id,omitempty"`
 }
 
 func (client *client) writePump() {
@@ -113,7 +114,7 @@ func (client *client) readPump(r *RealtimeHandler) {
 				logger.Log.Warn("message service is not initialized, cannot process message request", "user_id", client.userID)
 				continue
 			}
-			createdMsg, err := r.messageService.CreateMessage(context.Background(), client.userID, inMsg.ConversationID, inMsg.Content, inMsg.Username)
+			createdMsg, err := r.messageService.CreateMessage(context.Background(), client.userID, inMsg.ConversationID, inMsg.Content, inMsg.Username, inMsg.ClientID)
 			if err != nil {
 				logger.Log.Error("error creating message in message service for incoming message request", "user_id", client.userID, "conversation_id", inMsg.ConversationID, "error", err)
 				continue

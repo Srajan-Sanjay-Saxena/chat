@@ -28,8 +28,8 @@ func NewCachedMessageService(base *MessageService, repo *repository.Repository, 
 }
 
 // CreateMessage executes DB persistence, publishes via EventBus, and updates cache via Write-Through strategy.
-func (s *CachedMessageService) CreateMessage(ctx context.Context, userID, conversationID uuid.UUID, content, username string) (*OutMessage, error) {
-	outMsg, err := s.base.CreateMessage(ctx, userID, conversationID, content, username)
+func (s *CachedMessageService) CreateMessage(ctx context.Context, userID, conversationID uuid.UUID, content, username, clientID string) (*OutMessage, error) {
+	outMsg, err := s.base.CreateMessage(ctx, userID, conversationID, content, username, clientID)
 	if err != nil {
 		return nil, err
 	}

@@ -116,16 +116,18 @@ func main() {
 	}
 
 	subscriptionService := service.NewSubscriptionService(repo)
-	rawMessageService := service.NewMessageService(repo, publisher)
+	participantCache := service.NewParticipantCache(redisClient, repo)
+	rawMessageService := service.NewMessageService(repo, publisher, participantCache, redisClient)
 	cachedMessageService := service.NewCachedMessageService(rawMessageService, repo, msgCache)
 	realtimeHandler := realtime.NewRealtimeHandler(hub, subscriptionService, cachedMessageService)
 
 	logger.Log.Info("WebSocket hub started")
 
 	h := &handler.Handler{
-		Repo:         repo,
-		Maker:        maker,
-		CacheService: cachedMessageService,
+		Repo:             repo,
+		Maker:            maker,
+		CacheService:     cachedMessageService,
+		ParticipantCache: participantCache,
 	}
 
 	// Start the server

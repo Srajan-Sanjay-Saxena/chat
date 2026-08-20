@@ -9,9 +9,10 @@ import (
 
 type Handler struct {
 	// Add any dependencies or fields you need here
-	Repo         *repository.Repository
-	Maker        *helper.JWTMaker
-	CacheService *service.CachedMessageService
+	Repo             *repository.Repository
+	Maker            *helper.JWTMaker
+	CacheService     *service.CachedMessageService
+	ParticipantCache *service.ParticipantCache
 }
 
 func (h *Handler)HealthCheckHandler() http.Handler {

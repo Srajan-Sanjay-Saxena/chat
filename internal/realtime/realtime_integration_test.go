@@ -136,7 +136,7 @@ func TestWSIntegration(t *testing.T) {
 
 	publisher := NewLocalBus(hub.Broadcast)
 	subscriptionService := service.NewSubscriptionService(testRepo)
-	messageService := service.NewMessageService(testRepo, publisher)
+	messageService := service.NewMessageService(testRepo, publisher, nil, nil)
 	realtimeHandler := NewRealtimeHandler(hub, subscriptionService, messageService)
 	authMiddleware := middleware.JWTMiddleware(maker)
 	mux := http.NewServeMux()

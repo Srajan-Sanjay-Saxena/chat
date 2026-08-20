@@ -64,6 +64,10 @@ func (h *Handler)conversationMembershipHandler(operation string) http.Handler {
 				writeJSONError(w, http.StatusInternalServerError, "Failed to join conversation")
 				return
 			}
+			// Update participant cache
+			if h.ParticipantCache != nil {
+				h.ParticipantCache.AddParticipant(r.Context(), conversationID, userID)
+			}
 			logger.Log.Info("User joined conversation", "conversation_id", conversationID, "user_id", userID)
 			w.Header().Set("Content-Type", "application/json")
 			_ = json.NewEncoder(w).Encode(map[string]string{"message": "Successfully joined conversation"})
@@ -77,6 +81,10 @@ func (h *Handler)conversationMembershipHandler(operation string) http.Handler {
 			return
 		}
 
+		// Update participant cache
+		if h.ParticipantCache != nil {
+			h.ParticipantCache.RemoveParticipant(r.Context(), conversationID, userID)
+		}
 		logger.Log.Info("User left conversation", "conversation_id", conversationID, "user_id", userID)
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
