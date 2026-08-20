@@ -3,6 +3,7 @@ package realtime
 import (
 	"chat-v2/logger"
 	"chat-v2/service"
+	"context"
 	"sync"
 	"github.com/google/uuid"
 	"github.com/gorilla/websocket"	
@@ -46,17 +47,25 @@ type Hub struct {
 	
 }
 
+// PresenceUpdater is the interface for updating user presence.
+// Decoupled from the concrete Redis implementation for testability.
+type PresenceUpdater interface {
+	UpdatePresence(ctx context.Context, userID uuid.UUID) error
+}
+
 type RealtimeHandler struct {
 	hub                 *Hub
 	subscriptionService *service.SubscriptionService
 	messageService      service.MessageProcessor
+	presence            PresenceUpdater
 }
 
-func NewRealtimeHandler(hub *Hub, subscriptionService *service.SubscriptionService, messageService service.MessageProcessor) *RealtimeHandler {
+func NewRealtimeHandler(hub *Hub, subscriptionService *service.SubscriptionService, messageService service.MessageProcessor, presence PresenceUpdater) *RealtimeHandler {
 	return &RealtimeHandler{
 		hub:                 hub,
 		subscriptionService: subscriptionService,
 		messageService:      messageService,
+		presence:            presence,
 	}
 }
 

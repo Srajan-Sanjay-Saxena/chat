@@ -137,7 +137,7 @@ func TestWSIntegration(t *testing.T) {
 	publisher := NewLocalBus(hub.Broadcast)
 	subscriptionService := service.NewSubscriptionService(testRepo)
 	messageService := service.NewMessageService(testRepo, publisher, nil, nil)
-	realtimeHandler := NewRealtimeHandler(hub, subscriptionService, messageService)
+	realtimeHandler := NewRealtimeHandler(hub, subscriptionService, messageService, nil)
 	authMiddleware := middleware.JWTMiddleware(maker)
 	mux := http.NewServeMux()
 	mux.Handle("/ws", authMiddleware(NewWSHandler(realtimeHandler, maker, []string{allowedOrigin})) )

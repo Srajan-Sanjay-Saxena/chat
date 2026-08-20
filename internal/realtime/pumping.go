@@ -69,11 +69,20 @@ func (client *client) writePump() {
 
 func (client *client) readPump(r *RealtimeHandler) {
 
+	// Mark user as online immediately on connection
+	if r.presence != nil {
+		go r.presence.UpdatePresence(context.Background(), client.userID)
+	}
+
 	client.conn.SetReadLimit(maxMsgSize)
 	client.conn.SetReadDeadline(time.Now().Add(pongWait))
 	client.conn.SetPongHandler(func(string) error {
 		client.conn.SetReadDeadline(time.Now().Add(pongWait))
 		client.UpdateLastActive()
+		// Refresh Redis presence TTL on every pong
+		if r.presence != nil {
+			go r.presence.UpdatePresence(context.Background(), client.userID)
+		}
 		return nil
 	})
 

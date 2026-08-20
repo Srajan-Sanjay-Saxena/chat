@@ -48,7 +48,7 @@ func TestBehavior(t *testing.T) {
 		clientCh <- c
 
 		// start pumps
-		realtimeHandler := NewRealtimeHandler(testHub, nil, nil)
+		realtimeHandler := NewRealtimeHandler(testHub, nil, nil, nil)
 		c.readPump(realtimeHandler)
 		c.writePump()
 	}))
