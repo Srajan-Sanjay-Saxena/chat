@@ -31,17 +31,29 @@ func Connect(addr string, Username string, password string, db int) (*redis.Clie
 	}
 
 	RedisClient := redis.NewClient(&redis.Options{
-		Addr:     addr,
-		Password: password,
-		DB:       db,
+		Addr:        addr,
+		Password:    password,
+		DB:          db,
+		DialTimeout: 2 * time.Second,
+		MaxRetries:  1,
+		PoolSize:    1, // minimal pool during initial probe
 	})
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
 	if err := RedisClient.Ping(ctx).Err(); err != nil {
+		RedisClient.Close()
 		logger.Log.Error("Failed to connect to Redis", "error", err)
 		return nil, err
 	}
 	logger.Log.Info(fmt.Sprintf("Connected to Redis at %s", addr))
+
+	// Reconnect with full pool settings now that we know Redis is reachable
+	RedisClient.Close()
+	RedisClient = redis.NewClient(&redis.Options{
+		Addr:     addr,
+		Password: password,
+		DB:       db,
+	})
 	return RedisClient, nil
 }
 
