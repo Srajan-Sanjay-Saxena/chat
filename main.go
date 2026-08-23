@@ -50,16 +50,18 @@ func main() {
 	defer DB.Close()
 	logger.Log.Info("Database connection established")
 
-	// Connect to Redis if configured; otherwise continue without Redis-backed presence
-	redisClient, err := redis.Connect(cfg.RedisAddr, cfg.RedisUsername, cfg.RedisPassword, cfg.RedisDB)
-	if err != nil {
-		logger.Log.Warn("Redis unavailable; continuing without Redis-backed presence", "error", err)
+	// Connect to Redis — in development mode, auto-boots a Docker container if needed
+	redisClient, err := redis.ConnectOrBoot(cfg.RedisAddr, cfg.RedisUsername, cfg.RedisPassword, cfg.RedisDB, cfg.Env)
+	if err != nil || redisClient == nil {
+		if cfg.Env == "production" {
+			logger.Log.Error("Redis is required in production but unavailable", "error", err)
+			log.Fatalf("redis connection failed in production: %v", err)
+		}
+		logger.Log.Warn("Redis unavailable; continuing with in-memory fallbacks", "error", err)
 		redisClient = nil
-	} else if redisClient != nil {
-		defer redisClient.Close()
-		logger.Log.Info("Connected to Redis")
 	} else {
-		logger.Log.Info("Redis not configured; continuing without Redis-backed presence")
+		defer redisClient.Close()
+		logger.Log.Info("Redis ready")
 	}
 
 	// Initialize presence store
