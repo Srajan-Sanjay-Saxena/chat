@@ -53,7 +53,7 @@ func TestRedisBus_PubSub_Delivery(t *testing.T) {
 	password := os.Getenv("REDIS_PASSWORD")
 	username := os.Getenv("REDIS_USERNAME")
 
-	client, err := redis.Connect(redisAddr, username, password, 0)
+	client, err := redis.Connect(redisAddr, username, password, 0, false)
 	if err != nil || client == nil {
 		t.Skipf("Skipping live Redis PubSub test (Redis server not available at %s): %v", redisAddr, err)
 		return

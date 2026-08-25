@@ -94,7 +94,7 @@ func TestMain(m *testing.M) {
 	redisUsername := os.Getenv("REDIS_USERNAME")
 	redisDB := 0
 
-	redisClient, err := redis.Connect(redisAddr, redisUsername, redisPassword, redisDB)
+	redisClient, err := redis.Connect(redisAddr, redisUsername, redisPassword, redisDB, false)
 	if err != nil {
 		logger.Log.Warn("Redis unavailable during test setup; continuing without Redis-backed presence", "error", err)
 		redisClient = nil

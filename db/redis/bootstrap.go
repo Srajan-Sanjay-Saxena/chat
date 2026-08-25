@@ -3,6 +3,7 @@ package redis
 import (
 	"chat-v2/logger"
 	"context"
+	"crypto/tls"
 	"fmt"
 	"os/exec"
 	"strings"
@@ -18,11 +19,11 @@ const devContainerName = "relay-redis-dev"
 // to spin up a Redis Docker container automatically. If Docker is unavailable
 // or the container fails to start, it returns nil so the caller can fall back
 // to in-memory alternatives.
-func ConnectOrBoot(addr, username, password string, db int, env string) (*goredis.Client, error) {
-	logger.Log.Info("Redis bootstrap: attempting connection", "addr", addr, "env", env)
+func ConnectOrBoot(addr, username, password string, db int, env string, useTLS bool) (*goredis.Client, error) {
+	logger.Log.Info("Redis bootstrap: attempting connection", "addr", addr, "env", env, "tls", useTLS)
 
 	// 1. Try connecting directly
-	client, err := Connect(addr, username, password, db)
+	client, err := Connect(addr, username, password, db, useTLS)
 	if err == nil && client != nil {
 		logger.Log.Info("Redis bootstrap: connected successfully on first attempt", "addr", addr)
 		return client, nil
@@ -79,7 +80,7 @@ func ConnectOrBoot(addr, username, password string, db int, env string) (*goredi
 
 	// 7. Wait for Redis to become ready
 	logger.Log.Info("Redis bootstrap: waiting for Redis to become ready...")
-	client, err = waitAndConnect(addr, username, password, db)
+	client, err = waitAndConnect(addr, username, password, db, useTLS)
 	if err != nil {
 		logger.Log.Error("Redis bootstrap: failed to connect after container start", "error", err)
 		return nil, nil
@@ -145,7 +146,7 @@ func startContainer(name string) error {
 	return nil
 }
 
-func waitAndConnect(addr, username, password string, db int) (*goredis.Client, error) {
+func waitAndConnect(addr, username, password string, db int, useTLS bool) (*goredis.Client, error) {
 	maxRetries := 10
 	retryInterval := 500 * time.Millisecond
 
@@ -153,12 +154,17 @@ func waitAndConnect(addr, username, password string, db int) (*goredis.Client, e
 		time.Sleep(retryInterval)
 		logger.Log.Debug("Redis bootstrap: connection attempt", "attempt", i, "max", maxRetries)
 
-		client := goredis.NewClient(&goredis.Options{
+		opts := &goredis.Options{
 			Addr:     addr,
 			Username: username,
 			Password: password,
 			DB:       db,
-		})
+		}
+		if useTLS {
+			opts.TLSConfig = &tls.Config{}
+		}
+
+		client := goredis.NewClient(opts)
 
 		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 		err := client.Ping(ctx).Err()

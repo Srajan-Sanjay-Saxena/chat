@@ -51,7 +51,7 @@ func main() {
 	logger.Log.Info("Database connection established")
 
 	// Connect to Redis — in development mode, auto-boots a Docker container if needed
-	redisClient, err := redis.ConnectOrBoot(cfg.RedisAddr, cfg.RedisUsername, cfg.RedisPassword, cfg.RedisDB, cfg.Env)
+	redisClient, err := redis.ConnectOrBoot(cfg.RedisAddr, cfg.RedisUsername, cfg.RedisPassword, cfg.RedisDB, cfg.Env, cfg.RedisTLS)
 	if err != nil || redisClient == nil {
 		if cfg.Env == "production" {
 			logger.Log.Error("Redis is required in production but unavailable", "error", err)

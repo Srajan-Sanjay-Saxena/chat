@@ -3,6 +3,7 @@ package redis
 import (
 	"chat-v2/logger"
 	"context"
+	"crypto/tls"
 	"fmt"
 	"strings"
 	"time"
@@ -25,19 +26,26 @@ type PresenceInfo struct {
 	TotalMembers  int
 }
 
-func Connect(addr string, Username string, password string, db int) (*redis.Client, error) {
+func Connect(addr string, username string, password string, db int, useTLS bool) (*redis.Client, error) {
 	if strings.TrimSpace(addr) == "" {
 		return nil, nil
 	}
 
-	RedisClient := redis.NewClient(&redis.Options{
+	opts := &redis.Options{
 		Addr:        addr,
+		Username:    username,
 		Password:    password,
 		DB:          db,
 		DialTimeout: 2 * time.Second,
 		MaxRetries:  1,
 		PoolSize:    1, // minimal pool during initial probe
-	})
+	}
+
+	if useTLS {
+		opts.TLSConfig = &tls.Config{}
+	}
+
+	RedisClient := redis.NewClient(opts)
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
 	if err := RedisClient.Ping(ctx).Err(); err != nil {
@@ -45,15 +53,20 @@ func Connect(addr string, Username string, password string, db int) (*redis.Clie
 		logger.Log.Error("Failed to connect to Redis", "error", err)
 		return nil, err
 	}
-	logger.Log.Info(fmt.Sprintf("Connected to Redis at %s", addr))
+	logger.Log.Info(fmt.Sprintf("Connected to Redis at %s (TLS=%v)", addr, useTLS))
 
 	// Reconnect with full pool settings now that we know Redis is reachable
 	RedisClient.Close()
-	RedisClient = redis.NewClient(&redis.Options{
+	fullOpts := &redis.Options{
 		Addr:     addr,
+		Username: username,
 		Password: password,
 		DB:       db,
-	})
+	}
+	if useTLS {
+		fullOpts.TLSConfig = &tls.Config{}
+	}
+	RedisClient = redis.NewClient(fullOpts)
 	return RedisClient, nil
 }
 

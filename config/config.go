@@ -18,6 +18,7 @@ type Config struct {
 	RedisUsername    string   `env:"REDIS_USERNAME" envDefault:"default"`
 	RedisPassword    string   `env:"REDIS_PASSWORD"`
 	RedisDB          int      `env:"REDIS_DB" envDefault:"0"`
+	RedisTLS         bool     `env:"REDIS_TLS" envDefault:"false"`
 	WSAllowedOrigins []string `env:"WS_ALLOWED_ORIGINS" envSeparator:","`
 }
 

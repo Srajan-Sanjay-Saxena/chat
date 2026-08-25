@@ -53,7 +53,7 @@ func TestPresenceStore_NilClient(t *testing.T) {
 }
 
 func TestConnect_EmptyAddress(t *testing.T) {
-	client, err := redis.Connect("", "", "", 0)
+	client, err := redis.Connect("", "", "", 0, false)
 	if err != nil {
 		t.Fatalf("expected nil error for empty address, got: %v", err)
 	}
@@ -70,7 +70,7 @@ func TestPresenceStore_Integration(t *testing.T) {
 	password := os.Getenv("REDIS_PASSWORD")
 	username := os.Getenv("REDIS_USERNAME")
 
-	client, err := redis.Connect(redisAddr, username, password, 0)
+	client, err := redis.Connect(redisAddr, username, password, 0, false)
 	if err != nil {
 		t.Skipf("Skipping live Redis integration test (Redis server not reachable at %s): %v", redisAddr, err)
 		return
