@@ -14,14 +14,14 @@ import (
 )
 
 type SignUpRequest struct {
-	Username string `json:"username"`
-	Password string `json:"password"`
-	Email    string `json:"email"`
+	Username string `json:"username" validate:"required,min=3,max=20,alphanum_underscore"`
+	Password string `json:"password" validate:"required,min=8"`
+	Email    string `json:"email" validate:"required,email"`
 }
 
 type LoginRequest struct {
-	Username string `json:"username"`
-	Password string `json:"password"`
+	Username string `json:"username" validate:"required"`
+	Password string `json:"password" validate:"required"`
 }
 
 func (h *Handler) SignUpHandler() http.Handler {
@@ -42,28 +42,10 @@ func (h *Handler) SignUpHandler() http.Handler {
 			return
 		}
 
-		// Validate input
-		if req.Username == "" || req.Password == "" || req.Email == "" {
-			logger.Log.Debug("Missing fields in SignUpRequest", "username", req.Username, "email", req.Email)
-			writeJSONError(w, http.StatusBadRequest, "Username, password and email are required")
-			return
-		}
-
-		if helper.ValidateEmail(req.Email) == false {
-			logger.Log.Debug("Invalid email format in SignUpRequest", "email", req.Email)
-			writeJSONError(w, http.StatusBadRequest, "Invalid email format")
-			return
-		}
-
-		if helper.ValidatePassword(req.Password) == false {
-			logger.Log.Debug("Weak password in SignUpRequest", "username", req.Username)
-			writeJSONError(w, http.StatusBadRequest, "Password does not meet strength requirements")
-			return
-		}
-
-		if helper.ValidateUsername(req.Username) == false {
-			logger.Log.Debug("Invalid username in SignUpRequest", "username", req.Username)
-			writeJSONError(w, http.StatusBadRequest, "Username does not meet requirements")
+		// Validate input using struct tags
+		if err := helper.ValidateRequest(&req); err != nil {
+			logger.Log.Debug("Validation failed for SignUpRequest", "error", err)
+			writeJSONError(w, http.StatusBadRequest, err.Error())
 			return
 		}
 
@@ -104,7 +86,7 @@ func (h *Handler) SignUpHandler() http.Handler {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusCreated)
 		json.NewEncoder(w).Encode(map[string]string{
-			"status":  "User created successfully",
+			"message": "User created successfully",
 			"user_id": user.ID.String(),
 		})
 	})
@@ -128,9 +110,10 @@ func (h *Handler) LoginHandler() http.Handler {
 			return
 		}
 
-		if req.Username == "" || req.Password == "" {
-			logger.Log.Error("Missing fields in LoginRequest", "username", req.Username)
-			writeJSONError(w, http.StatusBadRequest, "Username and password are required")
+		// Validate input using struct tags
+		if err := helper.ValidateRequest(&req); err != nil {
+			logger.Log.Debug("Validation failed for LoginRequest", "error", err)
+			writeJSONError(w, http.StatusBadRequest, err.Error())
 			return
 		}
 
