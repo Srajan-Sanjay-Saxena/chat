@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
-	"os"
 	"time"
 
 	"github.com/golang-jwt/jwt/v5"
@@ -18,13 +17,11 @@ type JWTMaker struct {
 
 type Claims struct {
 	jwt.RegisteredClaims
-	UserID uuid.UUID `json:"user_id"`
 }
 
-func NewJWTMaker() (*JWTMaker, error) {
-	secretKey := os.Getenv("JWT_SECRET")
+func NewJWTMaker(secretKey string) (*JWTMaker, error) {
 	if secretKey == "" {
-		return nil, errors.New("JWT_SECRET environment variable is not set")
+		return nil, errors.New("JWT secret key cannot be empty")
 	}
 	return &JWTMaker{secretKey: secretKey}, nil
 }
@@ -45,7 +42,6 @@ func (m *JWTMaker) CreateToken(userID uuid.UUID, duration time.Duration) (string
 			IssuedAt:  jwt.NewNumericDate(now),
 			ExpiresAt: jwt.NewNumericDate(now.Add(duration)),
 		},
-		UserID: userID,
 	}
 
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
@@ -57,7 +53,7 @@ func (m *JWTMaker) VerifyToken(tokenStr string) (*Claims, error) {
 		return nil, fmt.Errorf("token is empty")
 	}
 
-	token, err := jwt.ParseWithClaims(tokenStr, &Claims{}, func(token *jwt.Token) (interface{}, error) {
+	token, err := jwt.ParseWithClaims(tokenStr, &Claims{}, func(token *jwt.Token) (any, error) {
 		if token.Method.Alg() != jwt.SigningMethodHS256.Alg() {
 			return nil, fmt.Errorf("unexpected signing method")
 		}
@@ -73,11 +69,16 @@ func (m *JWTMaker) VerifyToken(tokenStr string) (*Claims, error) {
 		return nil, fmt.Errorf("invalid token")
 	}
 
-	if claims.UserID == uuid.Nil {
+	if claims.Subject == "" {
 		return nil, fmt.Errorf("invalid user ID in token")
 	}
 
 	return claims, nil
+}
+
+// UserID extracts the user ID from the claims Subject field.
+func (c *Claims) UserID() (uuid.UUID, error) {
+	return uuid.Parse(c.Subject)
 }
 
 func ExtractTokenFromCookie(r *http.Request) (string, error) {

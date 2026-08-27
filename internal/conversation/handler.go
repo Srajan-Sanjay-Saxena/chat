@@ -85,6 +85,7 @@ func (h *Handler) Create() http.Handler {
 				usernameOrder = append(usernameOrder, clean)
 			}
 		}
+		
 		// Add current user
 		key := strings.ToLower(currentUser.Username)
 		if _, exists := usernameSet[key]; !exists {

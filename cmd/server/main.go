@@ -62,7 +62,7 @@ func main() {
 	msgRepo := message.NewRepository(db)
 
 	// Init JWT
-	jwtMaker, err := auth.NewJWTMaker()
+	jwtMaker, err := auth.NewJWTMaker(cfg.JWTSecret)
 	if err != nil {
 		log.Fatalf("Failed to create JWT maker: %v", err)
 	}

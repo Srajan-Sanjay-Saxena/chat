@@ -4,6 +4,7 @@ import (
 	"chat-v2/internal/pkg/logger"
 	"context"
 	"fmt"
+	"sync"
 	"time"
 
 	"github.com/google/uuid"
@@ -13,8 +14,9 @@ import (
 const participantCacheTTL = 1 * time.Hour
 
 type ParticipantCache struct {
-	redis *goredis.Client
-	repo  *Repository
+	redis      *goredis.Client
+	repo       *Repository
+	populating sync.Map // conversationID -> struct{}, prevents concurrent populate storms
 }
 
 func NewParticipantCache(redis *goredis.Client, repo *Repository) *ParticipantCache {
@@ -32,38 +34,62 @@ func (c *ParticipantCache) IsParticipant(ctx context.Context, conversationID, us
 
 	key := participantKey(conversationID)
 
+	// Try cache first
 	exists, err := c.redis.Exists(ctx, key).Result()
-	if err != nil {
-		logger.Warn("Redis error, falling back to DB", "error", err)
-		return c.repo.IsParticipant(ctx, conversationID, userID)
-	}
-
-	if exists > 0 {
+	if err == nil && exists > 0 {
 		isMember, err := c.redis.SIsMember(ctx, key, userID.String()).Result()
-		if err != nil {
-			logger.Warn("Redis SISMEMBER error, falling back to DB", "error", err)
-			return c.repo.IsParticipant(ctx, conversationID, userID)
+		if err == nil {
+			return isMember, nil
 		}
-		return isMember, nil
 	}
 
-	// Cache miss
-	members, err := c.repo.GetParticipants(ctx, conversationID)
+	// Cache miss or Redis error — ask DB directly (targeted EXISTS query, cheap)
+	isMember, err := c.repo.IsParticipant(ctx, conversationID, userID)
 	if err != nil {
 		return false, err
 	}
 
-	go c.populate(conversationID, members)
+	// Populate cache in background (deduped — only one populate per conversation at a time)
+	go c.populateIfMissing(conversationID)
 
-	for _, memberID := range members {
-		if memberID == userID {
-			return true, nil
-		}
+	return isMember, nil
+}
+
+func (c *ParticipantCache) populateIfMissing(conversationID uuid.UUID) {
+	
+	if c.redis == nil {
+		return
 	}
-	return false, nil
+
+	// Deduplicate concurrent populate attempts for the same conversation
+	key := conversationID.String()
+	if _, loaded := c.populating.LoadOrStore(key, struct{}{}); loaded {
+		return // another goroutine is already populating this conversation
+	}
+	defer c.populating.Delete(key)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+
+	redisKey := participantKey(conversationID)
+
+	// Check again — another request may have populated while we were queued
+	exists, _ := c.redis.Exists(ctx, redisKey).Result()
+	if exists > 0 {
+		return
+	}
+
+	members, err := c.repo.GetParticipants(ctx, conversationID)
+	if err != nil || len(members) == 0 {
+		return
+	}
+
+	c.populate(conversationID, members)
+	
 }
 
 func (c *ParticipantCache) populate(conversationID uuid.UUID, members []uuid.UUID) {
+	
 	if c.redis == nil || len(members) == 0 {
 		return
 	}
@@ -73,19 +99,24 @@ func (c *ParticipantCache) populate(conversationID uuid.UUID, members []uuid.UUI
 
 	key := participantKey(conversationID)
 
+	// Use a pipeline to set the members and expiration atomically
 	pipe := c.redis.Pipeline()
-	pipe.Del(ctx, key)
+	pipe.Del(ctx, key) // Clear any existing members before adding new ones
 
-	memberStrs := make([]interface{}, len(members))
+	memberStrs := make([]any, len(members))
 	for i, m := range members {
 		memberStrs[i] = m.String()
 	}
-	pipe.SAdd(ctx, key, memberStrs...)
-	pipe.Expire(ctx, key, participantCacheTTL)
+
+	pipe.SAdd(ctx, key, memberStrs...) // Add all members to the set
+	pipe.Expire(ctx, key, participantCacheTTL) // Set expiration for the cache
+
+	// Execute the pipeline
 
 	if _, err := pipe.Exec(ctx); err != nil {
 		logger.Warn("Failed to populate participant cache", "error", err)
 	}
+
 }
 
 func (c *ParticipantCache) Add(ctx context.Context, conversationID, userID uuid.UUID) {
