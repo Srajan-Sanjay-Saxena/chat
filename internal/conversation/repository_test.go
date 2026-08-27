@@ -62,40 +62,56 @@ func createTestUser(t *testing.T, repo *user.Repository, username string) *ent.U
 
 // --- Create Tests ---
 
-func TestCreate_GroupConversation(t *testing.T) {
-	env := setup(t)
+func TestCreate(t *testing.T) {
 	ctx := context.Background()
 
-	conv, err := env.convRepo.Create(ctx, "group", "Test Group", "", "")
-	if err != nil {
-		t.Fatalf("Create() error: %v", err)
+	tests := []struct {
+		name          string
+		convType      string
+		title         string
+		canonicalName string
+		wantType      string
+		checkTitle    bool
+		checkCanonical bool
+	}{
+		{
+			name:       "group conversation",
+			convType:   "group",
+			title:      "Test Group",
+			wantType:   "group",
+			checkTitle: true,
+		},
+		{
+			name:           "private conversation",
+			convType:       "private",
+			canonicalName:  "alice:bob",
+			wantType:       "private",
+			checkCanonical: true,
+		},
 	}
 
-	if conv.Type != "group" {
-		t.Errorf("Type = %q, want %q", conv.Type, "group")
-	}
-	if *conv.Title != "Test Group" {
-		t.Errorf("Title = %q, want %q", *conv.Title, "Test Group")
-	}
-	if conv.ID == uuid.Nil {
-		t.Error("ID should not be nil")
-	}
-}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			env := setup(t)
 
-func TestCreate_PrivateConversation(t *testing.T) {
-	env := setup(t)
-	ctx := context.Background()
+			conv, err := env.convRepo.Create(ctx, tt.convType, tt.title, "", tt.canonicalName)
+			if err != nil {
+				t.Fatalf("Create() error: %v", err)
+			}
 
-	conv, err := env.convRepo.Create(ctx, "private", "", "", "alice:bob")
-	if err != nil {
-		t.Fatalf("Create() error: %v", err)
-	}
-
-	if conv.Type != "private" {
-		t.Errorf("Type = %q, want %q", conv.Type, "private")
-	}
-	if *conv.CanonicalName != "alice:bob" {
-		t.Errorf("CanonicalName = %q, want %q", *conv.CanonicalName, "alice:bob")
+			if string(conv.Type) != tt.wantType {
+				t.Errorf("Type = %q, want %q", conv.Type, tt.wantType)
+			}
+			if conv.ID == uuid.Nil {
+				t.Error("ID should not be nil")
+			}
+			if tt.checkTitle && (conv.Title == nil || *conv.Title != tt.title) {
+				t.Errorf("Title = %v, want %q", conv.Title, tt.title)
+			}
+			if tt.checkCanonical && (conv.CanonicalName == nil || *conv.CanonicalName != tt.canonicalName) {
+				t.Errorf("CanonicalName = %v, want %q", conv.CanonicalName, tt.canonicalName)
+			}
+		})
 	}
 }
 
@@ -116,29 +132,55 @@ func TestCreate_DuplicateCanonicalName(t *testing.T) {
 
 // --- CreateWithParticipants Tests ---
 
-func TestCreateWithParticipants_Success(t *testing.T) {
-	env := setup(t)
+func TestCreateWithParticipants(t *testing.T) {
 	ctx := context.Background()
 
-	createTestUser(t, env.userRepo, "alice")
-	createTestUser(t, env.userRepo, "bob")
-
-	conv, err := env.convRepo.CreateWithParticipants(ctx, "private", "", "", "alice:bob", []string{"alice", "bob"})
-	if err != nil {
-		t.Fatalf("CreateWithParticipants() error: %v", err)
+	tests := []struct {
+		name             string
+		convType         string
+		title            string
+		canonicalName    string
+		participants     []string
+		wantCount        int
+	}{
+		{
+			name:          "private two users",
+			convType:      "private",
+			canonicalName: "alice:bob",
+			participants:  []string{"alice", "bob"},
+			wantCount:     2,
+		},
+		{
+			name:         "group three users",
+			convType:     "group",
+			title:        "Team Chat",
+			participants: []string{"alice", "bob", "charlie"},
+			wantCount:    3,
+		},
 	}
 
-	if conv.Type != "private" {
-		t.Errorf("Type = %q, want %q", conv.Type, "private")
-	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			env := setup(t)
 
-	// Verify participants were added
-	participants, err := env.convRepo.GetParticipants(ctx, conv.ID)
-	if err != nil {
-		t.Fatalf("GetParticipants() error: %v", err)
-	}
-	if len(participants) != 2 {
-		t.Errorf("participant count = %d, want 2", len(participants))
+			// Create all users
+			for _, username := range tt.participants {
+				createTestUser(t, env.userRepo, username)
+			}
+
+			conv, err := env.convRepo.CreateWithParticipants(ctx, tt.convType, tt.title, "", tt.canonicalName, tt.participants)
+			if err != nil {
+				t.Fatalf("CreateWithParticipants() error: %v", err)
+			}
+
+			participants, err := env.convRepo.GetParticipants(ctx, conv.ID)
+			if err != nil {
+				t.Fatalf("GetParticipants() error: %v", err)
+			}
+			if len(participants) != tt.wantCount {
+				t.Errorf("participant count = %d, want %d", len(participants), tt.wantCount)
+			}
+		})
 	}
 }
 
@@ -155,119 +197,134 @@ func TestCreateWithParticipants_UserNotFound(t *testing.T) {
 	}
 }
 
-func TestCreateWithParticipants_GroupWithMultiple(t *testing.T) {
-	env := setup(t)
-	ctx := context.Background()
+// --- GetByID / GetByCanonicalName Tests ---
 
-	createTestUser(t, env.userRepo, "alice")
-	createTestUser(t, env.userRepo, "bob")
-	createTestUser(t, env.userRepo, "charlie")
-
-	conv, err := env.convRepo.CreateWithParticipants(ctx, "group", "Team Chat", "", "", []string{"alice", "bob", "charlie"})
-	if err != nil {
-		t.Fatalf("CreateWithParticipants() error: %v", err)
-	}
-
-	participants, err := env.convRepo.GetParticipants(ctx, conv.ID)
-	if err != nil {
-		t.Fatalf("GetParticipants() error: %v", err)
-	}
-	if len(participants) != 3 {
-		t.Errorf("participant count = %d, want 3", len(participants))
-	}
-}
-
-// --- GetByID Tests ---
-
-func TestGetByID_Exists(t *testing.T) {
+func TestGetByID(t *testing.T) {
 	env := setup(t)
 	ctx := context.Background()
 
 	created, _ := env.convRepo.Create(ctx, "group", "My Group", "", "")
 
-	got, err := env.convRepo.GetByID(ctx, created.ID)
-	if err != nil {
-		t.Fatalf("GetByID() error: %v", err)
+	tests := []struct {
+		name       string
+		id         uuid.UUID
+		wantErr    bool
+		isNotFound bool
+	}{
+		{"exists", created.ID, false, false},
+		{"not found", uuid.New(), true, true},
 	}
-	if got.ID != created.ID {
-		t.Errorf("ID = %v, want %v", got.ID, created.ID)
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := env.convRepo.GetByID(ctx, tt.id)
+
+			if tt.wantErr {
+				if err == nil {
+					t.Error("expected error, got nil")
+				}
+				if tt.isNotFound && !ent.IsNotFound(err) {
+					t.Errorf("expected NotFound error, got %v", err)
+				}
+				return
+			}
+
+			if err != nil {
+				t.Fatalf("GetByID() error: %v", err)
+			}
+			if got.ID != created.ID {
+				t.Errorf("ID = %v, want %v", got.ID, created.ID)
+			}
+		})
 	}
 }
 
-func TestGetByID_NotFound(t *testing.T) {
-	env := setup(t)
-	ctx := context.Background()
-
-	_, err := env.convRepo.GetByID(ctx, uuid.New())
-	if !ent.IsNotFound(err) {
-		t.Errorf("GetByID() error = %v, want NotFound", err)
-	}
-}
-
-// --- GetByCanonicalName Tests ---
-
-func TestGetByCanonicalName_Exists(t *testing.T) {
+func TestGetByCanonicalName(t *testing.T) {
 	env := setup(t)
 	ctx := context.Background()
 
 	_, _ = env.convRepo.Create(ctx, "private", "", "", "alice:bob")
 
-	got, err := env.convRepo.GetByCanonicalName(ctx, "alice:bob")
-	if err != nil {
-		t.Fatalf("GetByCanonicalName() error: %v", err)
+	tests := []struct {
+		name          string
+		canonicalName string
+		wantErr       bool
+		isNotFound    bool
+	}{
+		{"exists", "alice:bob", false, false},
+		{"not found", "nonexistent:pair", true, true},
 	}
-	if *got.CanonicalName != "alice:bob" {
-		t.Errorf("CanonicalName = %q, want %q", *got.CanonicalName, "alice:bob")
-	}
-}
 
-func TestGetByCanonicalName_NotFound(t *testing.T) {
-	env := setup(t)
-	ctx := context.Background()
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := env.convRepo.GetByCanonicalName(ctx, tt.canonicalName)
 
-	_, err := env.convRepo.GetByCanonicalName(ctx, "nonexistent:pair")
-	if !ent.IsNotFound(err) {
-		t.Errorf("GetByCanonicalName() error = %v, want NotFound", err)
+			if tt.wantErr {
+				if err == nil {
+					t.Error("expected error, got nil")
+				}
+				if tt.isNotFound && !ent.IsNotFound(err) {
+					t.Errorf("expected NotFound error, got %v", err)
+				}
+				return
+			}
+
+			if err != nil {
+				t.Fatalf("GetByCanonicalName() error: %v", err)
+			}
+			if *got.CanonicalName != "alice:bob" {
+				t.Errorf("CanonicalName = %q, want %q", *got.CanonicalName, "alice:bob")
+			}
+		})
 	}
 }
 
 // --- GetByUserID Tests ---
 
-func TestGetByUserID_ReturnsUserConversations(t *testing.T) {
-	env := setup(t)
+func TestGetByUserID(t *testing.T) {
 	ctx := context.Background()
 
-	alice := createTestUser(t, env.userRepo, "alice")
-	createTestUser(t, env.userRepo, "bob")
-
-	_, _ = env.convRepo.CreateWithParticipants(ctx, "private", "", "", "alice:bob", []string{"alice", "bob"})
-	_, _ = env.convRepo.CreateWithParticipants(ctx, "group", "Team", "", "", []string{"alice", "bob"})
-
-	convs, err := env.convRepo.GetByUserID(ctx, alice.ID)
-	if err != nil {
-		t.Fatalf("GetByUserID() error: %v", err)
+	tests := []struct {
+		name      string
+		setup     func(*testEnv) uuid.UUID // returns userID to query
+		wantCount int
+	}{
+		{
+			name: "returns user conversations",
+			setup: func(env *testEnv) uuid.UUID {
+				alice := createTestUser(t, env.userRepo, "alice")
+				createTestUser(t, env.userRepo, "bob")
+				env.convRepo.CreateWithParticipants(ctx, "private", "", "", "alice:bob", []string{"alice", "bob"})
+				env.convRepo.CreateWithParticipants(ctx, "group", "Team", "", "", []string{"alice", "bob"})
+				return alice.ID
+			},
+			wantCount: 2,
+		},
+		{
+			name: "empty for user with no conversations",
+			setup: func(env *testEnv) uuid.UUID {
+				loner := createTestUser(t, env.userRepo, "loner")
+				return loner.ID
+			},
+			wantCount: 0,
+		},
 	}
-	if len(convs) != 2 {
-		t.Errorf("conversation count = %d, want 2", len(convs))
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			env := setup(t)
+			userID := tt.setup(env)
+
+			convs, err := env.convRepo.GetByUserID(ctx, userID)
+			if err != nil {
+				t.Fatalf("GetByUserID() error: %v", err)
+			}
+			if len(convs) != tt.wantCount {
+				t.Errorf("conversation count = %d, want %d", len(convs), tt.wantCount)
+			}
+		})
 	}
 }
-
-func TestGetByUserID_Empty(t *testing.T) {
-	env := setup(t)
-	ctx := context.Background()
-
-	loner := createTestUser(t, env.userRepo, "loner")
-
-	convs, err := env.convRepo.GetByUserID(ctx, loner.ID)
-	if err != nil {
-		t.Fatalf("GetByUserID() error: %v", err)
-	}
-	if len(convs) != 0 {
-		t.Errorf("conversation count = %d, want 0", len(convs))
-	}
-}
-
-// --- GetByUserIDWithDisplay Tests ---
 
 func TestGetByUserIDWithDisplay_PrivateShowsOtherUsername(t *testing.T) {
 	env := setup(t)
@@ -293,40 +350,35 @@ func TestGetByUserIDWithDisplay_PrivateShowsOtherUsername(t *testing.T) {
 
 // --- IsParticipant Tests ---
 
-func TestIsParticipant_True(t *testing.T) {
+func TestIsParticipant(t *testing.T) {
 	env := setup(t)
 	ctx := context.Background()
 
 	alice := createTestUser(t, env.userRepo, "alice")
 	createTestUser(t, env.userRepo, "bob")
-
-	conv, _ := env.convRepo.CreateWithParticipants(ctx, "private", "", "", "alice:bob", []string{"alice", "bob"})
-
-	is, err := env.convRepo.IsParticipant(ctx, conv.ID, alice.ID)
-	if err != nil {
-		t.Fatalf("IsParticipant() error: %v", err)
-	}
-	if !is {
-		t.Error("IsParticipant() = false, want true")
-	}
-}
-
-func TestIsParticipant_False(t *testing.T) {
-	env := setup(t)
-	ctx := context.Background()
-
-	createTestUser(t, env.userRepo, "alice")
-	createTestUser(t, env.userRepo, "bob")
 	outsider := createTestUser(t, env.userRepo, "outsider")
 
 	conv, _ := env.convRepo.CreateWithParticipants(ctx, "private", "", "", "alice:bob", []string{"alice", "bob"})
 
-	is, err := env.convRepo.IsParticipant(ctx, conv.ID, outsider.ID)
-	if err != nil {
-		t.Fatalf("IsParticipant() error: %v", err)
+	tests := []struct {
+		name   string
+		userID uuid.UUID
+		want   bool
+	}{
+		{"participant", alice.ID, true},
+		{"outsider", outsider.ID, false},
 	}
-	if is {
-		t.Error("IsParticipant() = true, want false")
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			is, err := env.convRepo.IsParticipant(ctx, conv.ID, tt.userID)
+			if err != nil {
+				t.Fatalf("IsParticipant() error: %v", err)
+			}
+			if is != tt.want {
+				t.Errorf("IsParticipant() = %v, want %v", is, tt.want)
+			}
+		})
 	}
 }
 
@@ -375,103 +427,126 @@ func TestAddRemoveParticipant(t *testing.T) {
 
 // --- GetParticipants Tests ---
 
-func TestGetParticipants_ReturnsAll(t *testing.T) {
-	env := setup(t)
+func TestGetParticipants(t *testing.T) {
 	ctx := context.Background()
 
-	alice := createTestUser(t, env.userRepo, "alice")
-	bob := createTestUser(t, env.userRepo, "bob")
-
-	conv, _ := env.convRepo.CreateWithParticipants(ctx, "private", "", "", "alice:bob", []string{"alice", "bob"})
-
-	participants, err := env.convRepo.GetParticipants(ctx, conv.ID)
-	if err != nil {
-		t.Fatalf("GetParticipants() error: %v", err)
+	tests := []struct {
+		name      string
+		setup     func(*testEnv) (uuid.UUID, []uuid.UUID) // returns convID and expected participant IDs
+		wantCount int
+	}{
+		{
+			name: "returns all",
+			setup: func(env *testEnv) (uuid.UUID, []uuid.UUID) {
+				alice := createTestUser(t, env.userRepo, "alice")
+				bob := createTestUser(t, env.userRepo, "bob")
+				conv, _ := env.convRepo.CreateWithParticipants(ctx, "private", "", "", "alice:bob", []string{"alice", "bob"})
+				return conv.ID, []uuid.UUID{alice.ID, bob.ID}
+			},
+			wantCount: 2,
+		},
+		{
+			name: "empty conversation",
+			setup: func(env *testEnv) (uuid.UUID, []uuid.UUID) {
+				conv, _ := env.convRepo.Create(ctx, "group", "Empty Group", "", "")
+				return conv.ID, nil
+			},
+			wantCount: 0,
+		},
 	}
-	if len(participants) != 2 {
-		t.Fatalf("participant count = %d, want 2", len(participants))
-	}
 
-	// Check both IDs are present
-	idSet := make(map[uuid.UUID]bool)
-	for _, id := range participants {
-		idSet[id] = true
-	}
-	if !idSet[alice.ID] {
-		t.Error("alice ID not in participants")
-	}
-	if !idSet[bob.ID] {
-		t.Error("bob ID not in participants")
-	}
-}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			env := setup(t)
+			convID, expectedIDs := tt.setup(env)
 
-func TestGetParticipants_EmptyConversation(t *testing.T) {
-	env := setup(t)
-	ctx := context.Background()
+			participants, err := env.convRepo.GetParticipants(ctx, convID)
+			if err != nil {
+				t.Fatalf("GetParticipants() error: %v", err)
+			}
+			if len(participants) != tt.wantCount {
+				t.Errorf("participant count = %d, want %d", len(participants), tt.wantCount)
+			}
 
-	// Create conversation without participants
-	conv, _ := env.convRepo.Create(ctx, "group", "Empty Group", "", "")
-
-	participants, err := env.convRepo.GetParticipants(ctx, conv.ID)
-	if err != nil {
-		t.Fatalf("GetParticipants() error: %v", err)
-	}
-	if len(participants) != 0 {
-		t.Errorf("participant count = %d, want 0", len(participants))
+			// Verify expected IDs are present
+			if expectedIDs != nil {
+				idSet := make(map[uuid.UUID]bool)
+				for _, id := range participants {
+					idSet[id] = true
+				}
+				for _, id := range expectedIDs {
+					if !idSet[id] {
+						t.Errorf("expected participant %v not found", id)
+					}
+				}
+			}
+		})
 	}
 }
 
 // --- GetFriends Tests ---
 
-func TestGetFriends_ReturnsPrivateConversationPartners(t *testing.T) {
-	env := setup(t)
+func TestGetFriends(t *testing.T) {
 	ctx := context.Background()
 
-	alice := createTestUser(t, env.userRepo, "alice")
-	bob := createTestUser(t, env.userRepo, "bob")
-	charlie := createTestUser(t, env.userRepo, "charlie")
+	tests := []struct {
+		name      string
+		setup     func(*testEnv) (uuid.UUID, []uuid.UUID) // returns userID and expected friend IDs
+		wantCount int
+	}{
+		{
+			name: "returns private conversation partners",
+			setup: func(env *testEnv) (uuid.UUID, []uuid.UUID) {
+				alice := createTestUser(t, env.userRepo, "alice")
+				bob := createTestUser(t, env.userRepo, "bob")
+				charlie := createTestUser(t, env.userRepo, "charlie")
 
-	// Alice has private convs with bob and charlie
-	_, _ = env.convRepo.CreateWithParticipants(ctx, "private", "", "", "alice:bob", []string{"alice", "bob"})
-	_, _ = env.convRepo.CreateWithParticipants(ctx, "private", "", "", "alice:charlie", []string{"alice", "charlie"})
-	// Alice is also in a group with bob — this should NOT make bob appear twice
-	_, _ = env.convRepo.CreateWithParticipants(ctx, "group", "Team", "", "", []string{"alice", "bob"})
+				env.convRepo.CreateWithParticipants(ctx, "private", "", "", "alice:bob", []string{"alice", "bob"})
+				env.convRepo.CreateWithParticipants(ctx, "private", "", "", "alice:charlie", []string{"alice", "charlie"})
+				// Group conv shouldn't affect friends
+				env.convRepo.CreateWithParticipants(ctx, "group", "Team", "", "", []string{"alice", "bob"})
 
-	friends, err := env.convRepo.GetFriends(ctx, alice.ID)
-	if err != nil {
-		t.Fatalf("GetFriends() error: %v", err)
+				return alice.ID, []uuid.UUID{bob.ID, charlie.ID}
+			},
+			wantCount: 2,
+		},
+		{
+			name: "no private conversations",
+			setup: func(env *testEnv) (uuid.UUID, []uuid.UUID) {
+				alice := createTestUser(t, env.userRepo, "alice")
+				createTestUser(t, env.userRepo, "bob")
+				env.convRepo.CreateWithParticipants(ctx, "group", "Team", "", "", []string{"alice", "bob"})
+				return alice.ID, nil
+			},
+			wantCount: 0,
+		},
 	}
-	if len(friends) != 2 {
-		t.Fatalf("friend count = %d, want 2", len(friends))
-	}
 
-	friendSet := make(map[uuid.UUID]bool)
-	for _, id := range friends {
-		friendSet[id] = true
-	}
-	if !friendSet[bob.ID] {
-		t.Error("bob should be a friend")
-	}
-	if !friendSet[charlie.ID] {
-		t.Error("charlie should be a friend")
-	}
-}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			env := setup(t)
+			userID, expectedFriends := tt.setup(env)
 
-func TestGetFriends_NoPrivateConversations(t *testing.T) {
-	env := setup(t)
-	ctx := context.Background()
+			friends, err := env.convRepo.GetFriends(ctx, userID)
+			if err != nil {
+				t.Fatalf("GetFriends() error: %v", err)
+			}
+			if len(friends) != tt.wantCount {
+				t.Errorf("friend count = %d, want %d", len(friends), tt.wantCount)
+			}
 
-	alice := createTestUser(t, env.userRepo, "alice")
-	createTestUser(t, env.userRepo, "bob")
-
-	// Only a group conversation — no friends
-	_, _ = env.convRepo.CreateWithParticipants(ctx, "group", "Team", "", "", []string{"alice", "bob"})
-
-	friends, err := env.convRepo.GetFriends(ctx, alice.ID)
-	if err != nil {
-		t.Fatalf("GetFriends() error: %v", err)
-	}
-	if len(friends) != 0 {
-		t.Errorf("friend count = %d, want 0 (only group convs)", len(friends))
+			// Verify expected friends are present
+			if expectedFriends != nil {
+				friendSet := make(map[uuid.UUID]bool)
+				for _, id := range friends {
+					friendSet[id] = true
+				}
+				for _, id := range expectedFriends {
+					if !friendSet[id] {
+						t.Errorf("expected friend %v not found", id)
+					}
+				}
+			}
+		})
 	}
 }

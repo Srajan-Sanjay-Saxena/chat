@@ -64,165 +64,204 @@ func TestCreate_Success(t *testing.T) {
 	}
 }
 
-func TestCreate_DuplicateUsername(t *testing.T) {
-	repo, _ := setupRepo(t)
+func TestCreate_Duplicate(t *testing.T) {
 	ctx := context.Background()
 
-	_, err := repo.Create(ctx, "bob", "hash1", "bob@example.com")
-	if err != nil {
-		t.Fatalf("first Create() error: %v", err)
+	tests := []struct {
+		name      string
+		first     [3]string // username, hash, email
+		second    [3]string
+		wantErr   error
+	}{
+		{
+			name:    "duplicate username",
+			first:   [3]string{"bob", "hash1", "bob@example.com"},
+			second:  [3]string{"bob", "hash2", "bob2@example.com"},
+			wantErr: user.ErrUserExists,
+		},
+		{
+			name:    "duplicate email",
+			first:   [3]string{"user1", "hash1", "same@example.com"},
+			second:  [3]string{"user2", "hash2", "same@example.com"},
+			wantErr: user.ErrUserExists,
+		},
 	}
 
-	_, err = repo.Create(ctx, "bob", "hash2", "bob2@example.com")
-	if err != user.ErrUserExists {
-		t.Errorf("second Create() error = %v, want ErrUserExists", err)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// Clean slate for each subtest
+			localRepo, _ := setupRepo(t)
+
+			_, err := localRepo.Create(ctx, tt.first[0], tt.first[1], tt.first[2])
+			if err != nil {
+				t.Fatalf("first Create() error: %v", err)
+			}
+
+			_, err = localRepo.Create(ctx, tt.second[0], tt.second[1], tt.second[2])
+			if err != tt.wantErr {
+				t.Errorf("second Create() error = %v, want %v", err, tt.wantErr)
+			}
+		})
 	}
 }
 
-func TestCreate_DuplicateEmail(t *testing.T) {
-	repo, _ := setupRepo(t)
-	ctx := context.Background()
-
-	_, err := repo.Create(ctx, "user1", "hash1", "same@example.com")
-	if err != nil {
-		t.Fatalf("first Create() error: %v", err)
-	}
-
-	_, err = repo.Create(ctx, "user2", "hash2", "same@example.com")
-	if err != user.ErrUserExists {
-		t.Errorf("second Create() error = %v, want ErrUserExists", err)
-	}
-}
-
-func TestGetByID_Exists(t *testing.T) {
+func TestGetByID(t *testing.T) {
 	repo, _ := setupRepo(t)
 	ctx := context.Background()
 
 	created, _ := repo.Create(ctx, "charlie", "hash", "charlie@example.com")
 
-	got, err := repo.GetByID(ctx, created.ID)
-	if err != nil {
-		t.Fatalf("GetByID() error: %v", err)
+	tests := []struct {
+		name    string
+		id      uuid.UUID
+		wantErr bool
+		isNotFound bool
+	}{
+		{"exists", created.ID, false, false},
+		{"not found", uuid.New(), true, true},
 	}
-	if got.Username != "charlie" {
-		t.Errorf("Username = %q, want %q", got.Username, "charlie")
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := repo.GetByID(ctx, tt.id)
+
+			if tt.wantErr {
+				if err == nil {
+					t.Error("expected error, got nil")
+				}
+				if tt.isNotFound && !ent.IsNotFound(err) {
+					t.Errorf("expected NotFound error, got %v", err)
+				}
+				return
+			}
+
+			if err != nil {
+				t.Fatalf("GetByID() error: %v", err)
+			}
+			if got.Username != "charlie" {
+				t.Errorf("Username = %q, want %q", got.Username, "charlie")
+			}
+		})
 	}
 }
 
-func TestGetByID_NotFound(t *testing.T) {
-	repo, _ := setupRepo(t)
-	ctx := context.Background()
-
-	_, err := repo.GetByID(ctx, uuid.New())
-	if !ent.IsNotFound(err) {
-		t.Errorf("GetByID() error = %v, want NotFound", err)
-	}
-}
-
-func TestGetByUsername_Exists(t *testing.T) {
+func TestGetByUsername(t *testing.T) {
 	repo, _ := setupRepo(t)
 	ctx := context.Background()
 
 	_, _ = repo.Create(ctx, "diana", "hash", "diana@example.com")
 
-	got, err := repo.GetByUsername(ctx, "diana")
-	if err != nil {
-		t.Fatalf("GetByUsername() error: %v", err)
+	tests := []struct {
+		name       string
+		username   string
+		wantEmail  string
+		wantErr    bool
+		isNotFound bool
+	}{
+		{"exists", "diana", "diana@example.com", false, false},
+		{"not found", "nonexistent", "", true, true},
 	}
-	if got.Email != "diana@example.com" {
-		t.Errorf("Email = %q, want %q", got.Email, "diana@example.com")
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := repo.GetByUsername(ctx, tt.username)
+
+			if tt.wantErr {
+				if err == nil {
+					t.Error("expected error, got nil")
+				}
+				if tt.isNotFound && !ent.IsNotFound(err) {
+					t.Errorf("expected NotFound error, got %v", err)
+				}
+				return
+			}
+
+			if err != nil {
+				t.Fatalf("GetByUsername() error: %v", err)
+			}
+			if got.Email != tt.wantEmail {
+				t.Errorf("Email = %q, want %q", got.Email, tt.wantEmail)
+			}
+		})
 	}
 }
 
-func TestGetByUsername_NotFound(t *testing.T) {
-	repo, _ := setupRepo(t)
-	ctx := context.Background()
-
-	_, err := repo.GetByUsername(ctx, "nonexistent")
-	if !ent.IsNotFound(err) {
-		t.Errorf("GetByUsername() error = %v, want NotFound", err)
-	}
-}
-
-func TestGetByEmail_Exists(t *testing.T) {
+func TestGetByEmail(t *testing.T) {
 	repo, _ := setupRepo(t)
 	ctx := context.Background()
 
 	_, _ = repo.Create(ctx, "eve", "hash", "eve@example.com")
 
-	got, err := repo.GetByEmail(ctx, "eve@example.com")
-	if err != nil {
-		t.Fatalf("GetByEmail() error: %v", err)
+	tests := []struct {
+		name         string
+		email        string
+		wantUsername string
+		wantErr      bool
+		isNotFound   bool
+	}{
+		{"exists", "eve@example.com", "eve", false, false},
+		{"not found", "nobody@example.com", "", true, true},
 	}
-	if got.Username != "eve" {
-		t.Errorf("Username = %q, want %q", got.Username, "eve")
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := repo.GetByEmail(ctx, tt.email)
+
+			if tt.wantErr {
+				if err == nil {
+					t.Error("expected error, got nil")
+				}
+				if tt.isNotFound && !ent.IsNotFound(err) {
+					t.Errorf("expected NotFound error, got %v", err)
+				}
+				return
+			}
+
+			if err != nil {
+				t.Fatalf("GetByEmail() error: %v", err)
+			}
+			if got.Username != tt.wantUsername {
+				t.Errorf("Username = %q, want %q", got.Username, tt.wantUsername)
+			}
+		})
 	}
 }
 
-func TestGetByEmail_NotFound(t *testing.T) {
+func TestSearch(t *testing.T) {
 	repo, _ := setupRepo(t)
 	ctx := context.Background()
 
-	_, err := repo.GetByEmail(ctx, "nobody@example.com")
-	if !ent.IsNotFound(err) {
-		t.Errorf("GetByEmail() error = %v, want NotFound", err)
-	}
-}
-
-func TestSearch_ByPrefix(t *testing.T) {
-	repo, _ := setupRepo(t)
-	ctx := context.Background()
-
+	// Create test users
 	_, _ = repo.Create(ctx, "frank", "hash", "frank@example.com")
 	_, _ = repo.Create(ctx, "fred", "hash", "fred@example.com")
 	_, _ = repo.Create(ctx, "grace", "hash", "grace@example.com")
 
-	results, err := repo.Search(ctx, "fr", 10)
-	if err != nil {
-		t.Fatalf("Search() error: %v", err)
-	}
-	if len(results) != 2 {
-		t.Fatalf("Search() returned %d results, want 2", len(results))
+	tests := []struct {
+		name      string
+		prefix    string
+		limit     int
+		wantCount int
+		wantFirst string // expected first result username (if any)
+	}{
+		{"prefix match", "fr", 10, 2, "frank"},
+		{"no match", "xyz", 10, 0, ""},
+		{"respects limit", "fr", 1, 1, "frank"},
+		{"single match", "gra", 10, 1, "grace"},
 	}
 
-	// Results should be ordered by username ascending
-	if results[0].Username != "frank" {
-		t.Errorf("results[0].Username = %q, want %q", results[0].Username, "frank")
-	}
-	if results[1].Username != "fred" {
-		t.Errorf("results[1].Username = %q, want %q", results[1].Username, "fred")
-	}
-}
-
-func TestSearch_NoMatch(t *testing.T) {
-	repo, _ := setupRepo(t)
-	ctx := context.Background()
-
-	_, _ = repo.Create(ctx, "henry", "hash", "henry@example.com")
-
-	results, err := repo.Search(ctx, "xyz", 10)
-	if err != nil {
-		t.Fatalf("Search() error: %v", err)
-	}
-	if len(results) != 0 {
-		t.Errorf("Search() returned %d results, want 0", len(results))
-	}
-}
-
-func TestSearch_RespectsLimit(t *testing.T) {
-	repo, _ := setupRepo(t)
-	ctx := context.Background()
-
-	_, _ = repo.Create(ctx, "test_a", "hash", "a@example.com")
-	_, _ = repo.Create(ctx, "test_b", "hash", "b@example.com")
-	_, _ = repo.Create(ctx, "test_c", "hash", "c@example.com")
-
-	results, err := repo.Search(ctx, "test_", 2)
-	if err != nil {
-		t.Fatalf("Search() error: %v", err)
-	}
-	if len(results) != 2 {
-		t.Errorf("Search() returned %d results, want 2 (limit)", len(results))
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			results, err := repo.Search(ctx, tt.prefix, tt.limit)
+			if err != nil {
+				t.Fatalf("Search() error: %v", err)
+			}
+			if len(results) != tt.wantCount {
+				t.Errorf("result count = %d, want %d", len(results), tt.wantCount)
+			}
+			if tt.wantFirst != "" && len(results) > 0 && results[0].Username != tt.wantFirst {
+				t.Errorf("first result = %q, want %q", results[0].Username, tt.wantFirst)
+			}
+		})
 	}
 }
 

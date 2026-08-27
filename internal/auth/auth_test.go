@@ -2,6 +2,7 @@ package auth_test
 
 import (
 	"chat-v2/internal/auth"
+	"context"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -43,30 +44,26 @@ func TestCreateToken_Valid(t *testing.T) {
 	}
 }
 
-func TestCreateToken_NilUserID(t *testing.T) {
+func TestCreateToken_InvalidInputs(t *testing.T) {
 	maker := newTestMaker(t)
 
-	_, err := maker.CreateToken(uuid.Nil, time.Hour)
-	if err == nil {
-		t.Fatal("expected error for nil userID, got nil")
+	tests := []struct {
+		name     string
+		userID   uuid.UUID
+		duration time.Duration
+	}{
+		{"nil userID", uuid.Nil, time.Hour},
+		{"zero duration", uuid.New(), 0},
+		{"negative duration", uuid.New(), -time.Hour},
 	}
-}
 
-func TestCreateToken_ZeroDuration(t *testing.T) {
-	maker := newTestMaker(t)
-
-	_, err := maker.CreateToken(uuid.New(), 0)
-	if err == nil {
-		t.Fatal("expected error for zero duration, got nil")
-	}
-}
-
-func TestCreateToken_NegativeDuration(t *testing.T) {
-	maker := newTestMaker(t)
-
-	_, err := maker.CreateToken(uuid.New(), -time.Hour)
-	if err == nil {
-		t.Fatal("expected error for negative duration, got nil")
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, err := maker.CreateToken(tt.userID, tt.duration)
+			if err == nil {
+				t.Errorf("expected error for %s, got nil", tt.name)
+			}
+		})
 	}
 }
 
@@ -99,67 +96,34 @@ func TestVerifyToken_Valid(t *testing.T) {
 	}
 }
 
-func TestVerifyToken_Expired(t *testing.T) {
+func TestVerifyToken_InvalidInputs(t *testing.T) {
 	maker := newTestMaker(t)
-	userID := uuid.New()
 
-	// Create token that expired 1 hour ago
-	token, err := maker.CreateToken(userID, -time.Second)
-	// CreateToken rejects negative duration, so we test with a very short one
-	// and then manually verify. Instead, let's test with empty token.
-	_ = token
-	_ = err
+	// Create a token with different secret for "wrong secret" test
+	otherMaker, _ := auth.NewJWTMaker("different-secret-key-that-is-also-32-bytes")
+	wrongSecretToken, _ := otherMaker.CreateToken(uuid.New(), time.Hour)
 
-	// Test with truly expired: create with 1ms, sleep, then verify
-	token, err = maker.CreateToken(userID, time.Millisecond)
-	if err != nil {
-		t.Fatalf("CreateToken() error: %v", err)
-	}
-
+	// Create expired token
+	expiredToken, _ := maker.CreateToken(uuid.New(), time.Millisecond)
 	time.Sleep(5 * time.Millisecond)
 
-	_, err = maker.VerifyToken(token)
-	if err == nil {
-		t.Fatal("expected error for expired token, got nil")
-	}
-}
-
-func TestVerifyToken_Empty(t *testing.T) {
-	maker := newTestMaker(t)
-
-	_, err := maker.VerifyToken("")
-	if err == nil {
-		t.Fatal("expected error for empty token, got nil")
-	}
-}
-
-func TestVerifyToken_Malformed(t *testing.T) {
-	maker := newTestMaker(t)
-
-	_, err := maker.VerifyToken("not.a.valid.token")
-	if err == nil {
-		t.Fatal("expected error for malformed token, got nil")
-	}
-}
-
-func TestVerifyToken_WrongSecret(t *testing.T) {
-	maker := newTestMaker(t)
-	userID := uuid.New()
-
-	token, err := maker.CreateToken(userID, time.Hour)
-	if err != nil {
-		t.Fatalf("CreateToken() error: %v", err)
+	tests := []struct {
+		name  string
+		token string
+	}{
+		{"empty token", ""},
+		{"malformed token", "not.a.valid.token"},
+		{"wrong secret", wrongSecretToken},
+		{"expired token", expiredToken},
 	}
 
-	// Create a different maker with a different secret
-	otherMaker, err := auth.NewJWTMaker("different-secret-key-that-is-also-32-bytes")
-	if err != nil {
-		t.Fatalf("NewJWTMaker() error: %v", err)
-	}
-
-	_, err = otherMaker.VerifyToken(token)
-	if err == nil {
-		t.Fatal("expected error when verifying with wrong secret, got nil")
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, err := maker.VerifyToken(tt.token)
+			if err == nil {
+				t.Errorf("expected error for %s, got nil", tt.name)
+			}
+		})
 	}
 }
 
@@ -178,26 +142,30 @@ func TestHashPassword_Valid(t *testing.T) {
 	}
 }
 
-func TestCheckPassword_Correct(t *testing.T) {
-	password := "securepassword"
-	hash, err := auth.HashPassword(password)
-	if err != nil {
-		t.Fatalf("HashPassword() error: %v", err)
-	}
-
-	if !auth.CheckPassword(password, hash) {
-		t.Error("CheckPassword() returned false for correct password")
-	}
-}
-
-func TestCheckPassword_Wrong(t *testing.T) {
+func TestCheckPassword(t *testing.T) {
 	hash, err := auth.HashPassword("correctpassword")
 	if err != nil {
 		t.Fatalf("HashPassword() error: %v", err)
 	}
 
-	if auth.CheckPassword("wrongpassword", hash) {
-		t.Error("CheckPassword() returned true for wrong password")
+	tests := []struct {
+		name     string
+		password string
+		want     bool
+	}{
+		{"correct password", "correctpassword", true},
+		{"wrong password", "wrongpassword", false},
+		{"empty password", "", false},
+		{"similar password", "correctpassword1", false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := auth.CheckPassword(tt.password, hash)
+			if got != tt.want {
+				t.Errorf("CheckPassword() = %v, want %v", got, tt.want)
+			}
+		})
 	}
 }
 
@@ -227,50 +195,74 @@ func TestSetGetUserFromContext(t *testing.T) {
 }
 
 func TestGetUserFromContext_Missing(t *testing.T) {
-	_, ok := auth.GetUserFromContext(t.Context())
-	if ok {
-		t.Error("GetUserFromContext() returned ok=true for empty context")
+	tests := []struct {
+		name string
+		ctx  func() context.Context
+	}{
+		{"empty context", func() context.Context { return t.Context() }},
+		{"nil context", func() context.Context { return nil }},
 	}
-}
 
-func TestGetUserFromContext_NilContext(t *testing.T) {
-	_, ok := auth.GetUserFromContext(nil)
-	if ok {
-		t.Error("GetUserFromContext(nil) returned ok=true")
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, ok := auth.GetUserFromContext(tt.ctx())
+			if ok {
+				t.Error("GetUserFromContext() returned ok=true, want false")
+			}
+		})
 	}
 }
 
 // --- ExtractTokenFromCookie Tests ---
 
-func TestExtractTokenFromCookie_Valid(t *testing.T) {
-	req := httptest.NewRequest(http.MethodGet, "/", nil)
-	req.AddCookie(&http.Cookie{Name: "access_token", Value: "my-token"})
-
-	token, err := auth.ExtractTokenFromCookie(req)
-	if err != nil {
-		t.Fatalf("ExtractTokenFromCookie() error: %v", err)
+func TestExtractTokenFromCookie(t *testing.T) {
+	tests := []struct {
+		name      string
+		cookie    *http.Cookie
+		wantToken string
+		wantErr   bool
+	}{
+		{
+			name:      "valid cookie",
+			cookie:    &http.Cookie{Name: "access_token", Value: "my-token"},
+			wantToken: "my-token",
+			wantErr:   false,
+		},
+		{
+			name:    "missing cookie",
+			cookie:  nil,
+			wantErr: true,
+		},
+		{
+			name:    "empty cookie value",
+			cookie:  &http.Cookie{Name: "access_token", Value: ""},
+			wantErr: true,
+		},
 	}
-	if token != "my-token" {
-		t.Errorf("ExtractTokenFromCookie() = %q, want %q", token, "my-token")
-	}
-}
 
-func TestExtractTokenFromCookie_Missing(t *testing.T) {
-	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			req := httptest.NewRequest(http.MethodGet, "/", nil)
+			if tt.cookie != nil {
+				req.AddCookie(tt.cookie)
+			}
 
-	_, err := auth.ExtractTokenFromCookie(req)
-	if err == nil {
-		t.Fatal("expected error for missing cookie, got nil")
-	}
-}
+			token, err := auth.ExtractTokenFromCookie(req)
 
-func TestExtractTokenFromCookie_Empty(t *testing.T) {
-	req := httptest.NewRequest(http.MethodGet, "/", nil)
-	req.AddCookie(&http.Cookie{Name: "access_token", Value: ""})
+			if tt.wantErr {
+				if err == nil {
+					t.Error("expected error, got nil")
+				}
+				return
+			}
 
-	_, err := auth.ExtractTokenFromCookie(req)
-	if err == nil {
-		t.Fatal("expected error for empty cookie value, got nil")
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if token != tt.wantToken {
+				t.Errorf("token = %q, want %q", token, tt.wantToken)
+			}
+		})
 	}
 }
 
@@ -282,7 +274,6 @@ func TestMiddleware_ValidToken(t *testing.T) {
 
 	token, _ := maker.CreateToken(userID, time.Hour)
 
-	// Handler that checks context for userID
 	var gotUserID uuid.UUID
 	var gotOK bool
 	inner := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -309,65 +300,45 @@ func TestMiddleware_ValidToken(t *testing.T) {
 	}
 }
 
-func TestMiddleware_NoCookie(t *testing.T) {
+func TestMiddleware_Unauthorized(t *testing.T) {
 	maker := newTestMaker(t)
 
-	inner := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		t.Fatal("inner handler should not be called")
-	})
-
-	handler := auth.Middleware(maker)(inner)
-
-	req := httptest.NewRequest(http.MethodGet, "/", nil)
-	rec := httptest.NewRecorder()
-
-	handler.ServeHTTP(rec, req)
-
-	if rec.Code != http.StatusUnauthorized {
-		t.Errorf("status = %d, want %d", rec.Code, http.StatusUnauthorized)
-	}
-}
-
-func TestMiddleware_InvalidToken(t *testing.T) {
-	maker := newTestMaker(t)
-
-	inner := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		t.Fatal("inner handler should not be called")
-	})
-
-	handler := auth.Middleware(maker)(inner)
-
-	req := httptest.NewRequest(http.MethodGet, "/", nil)
-	req.AddCookie(&http.Cookie{Name: "access_token", Value: "invalid-token"})
-	rec := httptest.NewRecorder()
-
-	handler.ServeHTTP(rec, req)
-
-	if rec.Code != http.StatusUnauthorized {
-		t.Errorf("status = %d, want %d", rec.Code, http.StatusUnauthorized)
-	}
-}
-
-func TestMiddleware_ExpiredToken(t *testing.T) {
-	maker := newTestMaker(t)
-	userID := uuid.New()
-
-	token, _ := maker.CreateToken(userID, time.Millisecond)
+	// Create expired token
+	expiredToken, _ := maker.CreateToken(uuid.New(), time.Millisecond)
 	time.Sleep(5 * time.Millisecond)
 
-	inner := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		t.Fatal("inner handler should not be called for expired token")
-	})
+	tests := []struct {
+		name   string
+		cookie *http.Cookie
+	}{
+		{"no cookie", nil},
+		{"invalid token", &http.Cookie{Name: "access_token", Value: "invalid-token"}},
+		{"expired token", &http.Cookie{Name: "access_token", Value: expiredToken}},
+	}
 
-	handler := auth.Middleware(maker)(inner)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			innerCalled := false
+			inner := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				innerCalled = true
+			})
 
-	req := httptest.NewRequest(http.MethodGet, "/", nil)
-	req.AddCookie(&http.Cookie{Name: "access_token", Value: token})
-	rec := httptest.NewRecorder()
+			handler := auth.Middleware(maker)(inner)
 
-	handler.ServeHTTP(rec, req)
+			req := httptest.NewRequest(http.MethodGet, "/", nil)
+			if tt.cookie != nil {
+				req.AddCookie(tt.cookie)
+			}
+			rec := httptest.NewRecorder()
 
-	if rec.Code != http.StatusUnauthorized {
-		t.Errorf("status = %d, want %d", rec.Code, http.StatusUnauthorized)
+			handler.ServeHTTP(rec, req)
+
+			if rec.Code != http.StatusUnauthorized {
+				t.Errorf("status = %d, want %d", rec.Code, http.StatusUnauthorized)
+			}
+			if innerCalled {
+				t.Error("inner handler should not be called for unauthorized request")
+			}
+		})
 	}
 }
