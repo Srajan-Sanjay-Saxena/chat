@@ -16,9 +16,10 @@ import (
 	"testing"
 	"time"
 
+	"chat-v2/middleware"
+
 	"github.com/google/uuid"
 	"github.com/gorilla/websocket"
-	"chat-v2/middleware"
 )
 
 var testRepo *repository.Repository
@@ -140,7 +141,7 @@ func TestWSIntegration(t *testing.T) {
 	realtimeHandler := NewRealtimeHandler(hub, subscriptionService, messageService, nil)
 	authMiddleware := middleware.JWTMiddleware(maker)
 	mux := http.NewServeMux()
-	mux.Handle("/ws", authMiddleware(NewWSHandler(realtimeHandler, maker, []string{allowedOrigin})) )
+	mux.Handle("/ws", authMiddleware(NewWSHandler(realtimeHandler, maker, []string{allowedOrigin})))
 	server := httptest.NewServer(mux)
 	defer server.Close()
 
