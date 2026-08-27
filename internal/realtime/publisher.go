@@ -1,38 +1,67 @@
 package realtime
 
 import (
-	"chat-v2/service"
+	"chat-v2/internal/message"
 	"context"
-	"github.com/google/uuid"
-	// "chat-v2/db"
-	"time"
+	"encoding/json"
+
+	goredis "github.com/redis/go-redis/v9"
 )
 
-type outMessage struct {
-	Type           string    `json:"type"`
-	ID             uuid.UUID    `json:"id"`
-	SenderID       uuid.UUID    `json:"sender_id"`
-	ConversationID uuid.UUID    `json:"conversation_id"`
-	Content        string    `json:"content"`
-	CreatedAt      time.Time   `json:"created_at"`
-	SenderUsername string    `json:"sender_username"`
+type LocalPublisher struct {
+	hub *Hub
 }
 
-type LocalBus struct {
-	handler service.MessageHandler
+func NewLocalPublisher(hub *Hub) *LocalPublisher {
+	return &LocalPublisher{hub: hub}
 }
 
-func NewLocalBus(localHandler service.MessageHandler) *LocalBus {
-	return &LocalBus{handler: localHandler}
-}
-
-func (b *LocalBus) Publish(ctx context.Context, outMsg *service.OutMessage) error {
-	b.handler(outMsg)
-	return nil;
-}
-
-func (b *LocalBus) Subscribe(ctx context.Context, handler service.MessageHandler) error {
-	b.handler = handler
+func (p *LocalPublisher) Publish(ctx context.Context, msg *message.OutMessage) error {
+	p.hub.Broadcast(msg)
 	return nil
 }
 
+type RedisPublisher struct {
+	client *goredis.Client
+}
+
+func NewRedisPublisher(client *goredis.Client) *RedisPublisher {
+	return &RedisPublisher{client: client}
+}
+
+func (p *RedisPublisher) Publish(ctx context.Context, msg *message.OutMessage) error {
+	if p.client == nil {
+		return nil
+	}
+	payload, err := json.Marshal(msg)
+	if err != nil {
+		return err
+	}
+	return p.client.Publish(ctx, "relay:conversation:"+msg.ConversationID.String(), payload).Err()
+}
+
+func (p *RedisPublisher) Subscribe(ctx context.Context, hub *Hub) error {
+	if p.client == nil {
+		return nil
+	}
+
+	sub := p.client.PSubscribe(ctx, "relay:conversation:*")
+	go func() {
+		defer sub.Close()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case redisMsg, ok := <-sub.Channel():
+				if !ok {
+					return
+				}
+				var msg message.OutMessage
+				if json.Unmarshal([]byte(redisMsg.Payload), &msg) == nil {
+					hub.Broadcast(&msg)
+				}
+			}
+		}
+	}()
+	return nil
+}
