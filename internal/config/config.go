@@ -21,6 +21,7 @@ type Config struct {
 	RedisDB          int      `env:"REDIS_DB" envDefault:"0"`
 	RedisTLS         bool     `env:"REDIS_TLS" envDefault:"false"`
 	WSAllowedOrigins []string `env:"WS_ALLOWED_ORIGINS" envSeparator:","`
+	TrustedProxies   int      `env:"TRUSTED_PROXIES" envDefault:"0"` // 0 = don't trust XFF, 1+ = number of trusted proxies
 }
 
 func Load(envPath string) (*Config, error) {

@@ -4,15 +4,14 @@ import (
 	"chat-v2/internal/auth"
 	"chat-v2/internal/pkg/logger"
 	"context"
-	"net"
 	"net/http"
 	"strconv"
-	"strings"
 	"sync"
 	"time"
 
 	"github.com/go-redis/redis_rate/v10"
 	"github.com/google/uuid"
+	"github.com/realclientip/realclientip-go"
 	goredis "github.com/redis/go-redis/v9"
 	"golang.org/x/time/rate"
 )
@@ -23,12 +22,25 @@ type RateLimiter struct {
 	limit        int
 	window       time.Duration
 	keyPrefix    string
+	ipStrategy   realclientip.Strategy
 }
 
-func NewRateLimiter(redis *goredis.Client, keyPrefix string, limit int, window time.Duration) *RateLimiter {
+// NewRateLimiter creates a rate limiter.
+// trustedProxies: 0 = use RemoteAddr only (direct exposure), 1+ = trust that many rightmost proxies in X-Forwarded-For
+func NewRateLimiter(redis *goredis.Client, keyPrefix string, limit int, window time.Duration, trustedProxies int) *RateLimiter {
 	var redisLimiter *redis_rate.Limiter
 	if redis != nil {
 		redisLimiter = redis_rate.NewLimiter(redis)
+	}
+
+	// Configure IP extraction strategy based on trusted proxy count
+	var ipStrategy realclientip.Strategy
+	if trustedProxies > 0 {
+		// Trust the rightmost N proxies, take the IP just before them
+		ipStrategy, _ = realclientip.NewRightmostTrustedCountStrategy("X-Forwarded-For", trustedProxies)
+	} else {
+		// Don't trust any proxy headers, use RemoteAddr
+		ipStrategy = realclientip.RemoteAddrStrategy{}
 	}
 
 	return &RateLimiter{
@@ -36,28 +48,41 @@ func NewRateLimiter(redis *goredis.Client, keyPrefix string, limit int, window t
 		limit:        limit,
 		window:       window,
 		keyPrefix:    keyPrefix,
+		ipStrategy:   ipStrategy,
 	}
 }
 
+// RateLimit returns middleware that rate limits requests.
+// Deprecated: Use NewRateLimiter and RateLimitMiddleware for proper IP handling.
 func RateLimit(redis *goredis.Client, keyPrefix string, limit int, window time.Duration) func(http.Handler) http.Handler {
-	limiter := NewRateLimiter(redis, keyPrefix, limit, window)
+	limiter := NewRateLimiter(redis, keyPrefix, limit, window, 0) // default: don't trust XFF
+	return limiter.Middleware()
+}
 
+// RateLimitWithConfig returns middleware with proper trusted proxy configuration.
+func RateLimitWithConfig(redis *goredis.Client, keyPrefix string, limit int, window time.Duration, trustedProxies int) func(http.Handler) http.Handler {
+	limiter := NewRateLimiter(redis, keyPrefix, limit, window, trustedProxies)
+	return limiter.Middleware()
+}
+
+func (l *RateLimiter) Middleware() func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			identifier := getClientIdentifier(r)
-			key := limiter.keyPrefix + ":" + identifier
+			identifier := l.getClientIdentifier(r)
+			key := l.keyPrefix + ":" + identifier
 
-			result := limiter.Allow(r.Context(), key)
+			result := l.Allow(r.Context(), key)
 
 			w.Header().Set("X-RateLimit-Limit", strconv.Itoa(result.Limit))
 			w.Header().Set("X-RateLimit-Remaining", strconv.Itoa(result.Remaining))
 
 			if !result.Allowed {
 				retryAfter := int(result.RetryAfter.Seconds())
-				retryAfter = max(retryAfter, 1) // Ensure at least 1 second
-
+				if retryAfter < 1 {
+					retryAfter = 1
+				}
 				w.Header().Set("Retry-After", strconv.Itoa(retryAfter))
-				logger.Warn("Rate limit exceeded", "key", key)
+				logger.Warn("Rate limit exceeded", "key", key, "identifier", identifier)
 				http.Error(w, "Too Many Requests", http.StatusTooManyRequests)
 				return
 			}
@@ -105,7 +130,6 @@ func (l *RateLimiter) allowMemory(key string) RateLimitResult {
 	memLimiter := limiterObj.(*rate.Limiter)
 
 	if memLimiter.Allow() {
-		// Approximate remaining tokens
 		tokens := int(memLimiter.Tokens())
 		return RateLimitResult{
 			Allowed:   true,
@@ -122,19 +146,17 @@ func (l *RateLimiter) allowMemory(key string) RateLimitResult {
 	}
 }
 
-func getClientIdentifier(r *http.Request) string {
+func (l *RateLimiter) getClientIdentifier(r *http.Request) string {
+	// Prefer authenticated user ID (can't be spoofed)
 	if userID, ok := auth.GetUserFromContext(r.Context()); ok && userID != uuid.Nil {
-		return userID.String()
+		return "user:" + userID.String()
 	}
 
-	if ip := r.Header.Get("X-Forwarded-For"); ip != "" {
-		parts := strings.Split(ip, ",")
-		return strings.TrimSpace(parts[0])
+	// Fall back to IP using configured strategy
+	ip := l.ipStrategy.ClientIP(r.Header, r.RemoteAddr)
+	if ip == "" {
+		// Fallback if strategy returns empty (shouldn't happen with RemoteAddrStrategy)
+		ip = r.RemoteAddr
 	}
-
-	ip, _, err := net.SplitHostPort(r.RemoteAddr)
-	if err != nil {
-		return r.RemoteAddr
-	}
-	return ip
+	return "ip:" + ip
 }

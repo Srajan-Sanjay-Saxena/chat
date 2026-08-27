@@ -112,11 +112,11 @@ func main() {
 	mux := http.NewServeMux()
 	authMW := auth.Middleware(jwtMaker)
 
-	// Rate limiters
-	loginRL := middleware.RateLimit(redisClient, "login", 5, time.Minute)
-	signupRL := middleware.RateLimit(redisClient, "signup", 3, time.Hour)
-	apiRL := middleware.RateLimit(redisClient, "api", 60, time.Minute)
-	wsRL := middleware.RateLimit(redisClient, "ws", 10, time.Minute)
+	// Rate limiters (with trusted proxy config for proper client IP detection)
+	loginRL := middleware.RateLimitWithConfig(redisClient, "login", 5, time.Minute, cfg.TrustedProxies)
+	signupRL := middleware.RateLimitWithConfig(redisClient, "signup", 3, time.Hour, cfg.TrustedProxies)
+	apiRL := middleware.RateLimitWithConfig(redisClient, "api", 60, time.Minute, cfg.TrustedProxies)
+	wsRL := middleware.RateLimitWithConfig(redisClient, "ws", 10, time.Minute, cfg.TrustedProxies)
 
 	// Health
 	mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
