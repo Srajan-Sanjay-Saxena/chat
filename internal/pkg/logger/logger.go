@@ -9,9 +9,11 @@ var log *slog.Logger
 
 func Init(env string) {
 	if env == "production" {
+
 		log = slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{
 			Level: slog.LevelInfo,
 		}))
+
 	} else {
 		file, err := os.OpenFile("app.log", os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
 		if err != nil {

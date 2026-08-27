@@ -121,7 +121,7 @@ func (h *Handler) Login() http.Handler {
 		http.SetCookie(w, &http.Cookie{
 			Name:     "access_token",
 			Value:    token,
-			Expires:  now.Add(2 * time.Hour),
+			Expires:  now.Add(24 * time.Hour),
 			Path:     "/api/",
 			HttpOnly: true,
 			Secure:   true,
