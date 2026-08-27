@@ -4,7 +4,6 @@ import (
 	"chat-v2/internal/auth"
 	"chat-v2/internal/pkg/logger"
 	"context"
-	"fmt"
 	"net"
 	"net/http"
 	"strconv"
@@ -12,38 +11,53 @@ import (
 	"sync"
 	"time"
 
+	"github.com/go-redis/redis_rate/v10"
 	"github.com/google/uuid"
 	goredis "github.com/redis/go-redis/v9"
 	"golang.org/x/time/rate"
 )
 
 type RateLimiter struct {
-	redis       *goredis.Client
-	memLimiters sync.Map
-	rate        rate.Limit
-	burst       int
+	redisLimiter *redis_rate.Limiter
+	memLimiters  sync.Map
+	limit        int
+	window       time.Duration
+	keyPrefix    string
+}
+
+func NewRateLimiter(redis *goredis.Client, keyPrefix string, limit int, window time.Duration) *RateLimiter {
+	var redisLimiter *redis_rate.Limiter
+	if redis != nil {
+		redisLimiter = redis_rate.NewLimiter(redis)
+	}
+
+	return &RateLimiter{
+		redisLimiter: redisLimiter,
+		limit:        limit,
+		window:       window,
+		keyPrefix:    keyPrefix,
+	}
 }
 
 func RateLimit(redis *goredis.Client, keyPrefix string, limit int, window time.Duration) func(http.Handler) http.Handler {
-	limiter := &RateLimiter{
-		redis: redis,
-		rate:  rate.Limit(float64(limit) / window.Seconds()),
-		burst: limit,
-	}
+	limiter := NewRateLimiter(redis, keyPrefix, limit, window)
 
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			identifier := getClientIdentifier(r)
-			redisKey := fmt.Sprintf("rl:%s:%s", keyPrefix, identifier)
+			key := limiter.keyPrefix + ":" + identifier
 
-			allowed, count, remaining := limiter.check(r.Context(), redisKey, identifier, limit, window)
+			result := limiter.Allow(r.Context(), key)
 
-			w.Header().Set("X-RateLimit-Limit", strconv.Itoa(limit))
-			w.Header().Set("X-RateLimit-Remaining", strconv.Itoa(remaining))
+			w.Header().Set("X-RateLimit-Limit", strconv.Itoa(result.Limit))
+			w.Header().Set("X-RateLimit-Remaining", strconv.Itoa(result.Remaining))
 
-			if !allowed {
-				w.Header().Set("Retry-After", strconv.Itoa(int(window.Seconds())))
-				logger.Warn("Rate limit exceeded", "key", redisKey, "count", count)
+			if !result.Allowed {
+				retryAfter := int(result.RetryAfter.Seconds())
+				retryAfter = max(retryAfter, 1) // Ensure at least 1 second
+
+				w.Header().Set("Retry-After", strconv.Itoa(retryAfter))
+				logger.Warn("Rate limit exceeded", "key", key)
 				http.Error(w, "Too Many Requests", http.StatusTooManyRequests)
 				return
 			}
@@ -53,36 +67,59 @@ func RateLimit(redis *goredis.Client, keyPrefix string, limit int, window time.D
 	}
 }
 
-func (l *RateLimiter) check(ctx context.Context, key, identifier string, limit int, window time.Duration) (allowed bool, count int, remaining int) {
-	if l.redis != nil {
-		nowMs := time.Now().UnixNano() / int64(time.Millisecond)
-		windowStartMs := nowMs - window.Milliseconds()
-		member := fmt.Sprintf("%d-%s", nowMs, uuid.NewString()[:8])
+type RateLimitResult struct {
+	Allowed    bool
+	Limit      int
+	Remaining  int
+	RetryAfter time.Duration
+}
 
-		pipe := l.redis.Pipeline()
-		pipe.ZRemRangeByScore(ctx, key, "0", strconv.FormatInt(windowStartMs, 10))
-		pipe.ZAdd(ctx, key, goredis.Z{Score: float64(nowMs), Member: member})
-		countCmd := pipe.ZCard(ctx, key)
-		pipe.Expire(ctx, key, window+time.Second)
-
-		if _, err := pipe.Exec(ctx); err == nil {
-			count := int(countCmd.Val())
-			rem := limit - count
-			if rem < 0 {
-				rem = 0
+func (l *RateLimiter) Allow(ctx context.Context, key string) RateLimitResult {
+	// Try Redis first
+	if l.redisLimiter != nil {
+		result, err := l.redisLimiter.Allow(ctx, key, redis_rate.Limit{
+			Rate:   l.limit,
+			Burst:  l.limit,
+			Period: l.window,
+		})
+		if err == nil {
+			return RateLimitResult{
+				Allowed:    result.Allowed > 0,
+				Limit:      l.limit,
+				Remaining:  max(0, result.Remaining),
+				RetryAfter: result.RetryAfter,
 			}
-			return count <= limit, count, rem
 		}
+		logger.Warn("Redis rate limit failed, falling back to memory", "error", err)
 	}
 
-	// Memory fallback
-	limiterObj, _ := l.memLimiters.LoadOrStore(identifier, rate.NewLimiter(l.rate, l.burst))
+	// Memory fallback using token bucket
+	return l.allowMemory(key)
+}
+
+func (l *RateLimiter) allowMemory(key string) RateLimitResult {
+	// Create rate based on limit/window
+	r := rate.Limit(float64(l.limit) / l.window.Seconds())
+
+	limiterObj, _ := l.memLimiters.LoadOrStore(key, rate.NewLimiter(r, l.limit))
 	memLimiter := limiterObj.(*rate.Limiter)
 
 	if memLimiter.Allow() {
-		return true, 1, limit - 1
+		// Approximate remaining tokens
+		tokens := int(memLimiter.Tokens())
+		return RateLimitResult{
+			Allowed:   true,
+			Limit:     l.limit,
+			Remaining: tokens,
+		}
 	}
-	return false, limit, 0
+
+	return RateLimitResult{
+		Allowed:    false,
+		Limit:      l.limit,
+		Remaining:  0,
+		RetryAfter: l.window,
+	}
 }
 
 func getClientIdentifier(r *http.Request) string {

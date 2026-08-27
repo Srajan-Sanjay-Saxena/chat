@@ -252,6 +252,9 @@ func TestGetByCanonicalName(t *testing.T) {
 		isNotFound    bool
 	}{
 		{"exists", "alice:bob", false, false},
+		{"empty canonical name", "", true, true},
+		{"invalid format", "alice-bob", true, true},
+		{"opposite order", "bob:alice", true, true},
 		{"not found", "nonexistent:pair", true, true},
 	}
 
@@ -367,6 +370,8 @@ func TestIsParticipant(t *testing.T) {
 	}{
 		{"participant", alice.ID, true},
 		{"outsider", outsider.ID, false},
+		{"nonexistent user", uuid.New(), false},
+		{"nil user ID", uuid.Nil, false},
 	}
 
 	for _, tt := range tests {
