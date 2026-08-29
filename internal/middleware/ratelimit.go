@@ -1,8 +1,6 @@
 package middleware
 
 import (
-	"chat-v2/internal/auth"
-	"chat-v2/internal/pkg/logger"
 	"context"
 	"net/http"
 	"strconv"
@@ -14,6 +12,9 @@ import (
 	"github.com/realclientip/realclientip-go"
 	goredis "github.com/redis/go-redis/v9"
 	"golang.org/x/time/rate"
+
+	"chat-v2/internal/auth"
+	"chat-v2/internal/pkg/logger"
 )
 
 type RateLimiter struct {
@@ -56,16 +57,16 @@ func NewRateLimiter(redis *goredis.Client, keyPrefix string, limit int, window t
 // Deprecated: Use NewRateLimiter and RateLimitMiddleware for proper IP handling.
 func RateLimit(redis *goredis.Client, keyPrefix string, limit int, window time.Duration) func(http.Handler) http.Handler {
 	limiter := NewRateLimiter(redis, keyPrefix, limit, window, 0) // default: don't trust XFF
-	return limiter.Middleware()
+	return limiter.RateLimiter()
 }
 
 // RateLimitWithConfig returns middleware with proper trusted proxy configuration.
 func RateLimitWithConfig(redis *goredis.Client, keyPrefix string, limit int, window time.Duration, trustedProxies int) func(http.Handler) http.Handler {
 	limiter := NewRateLimiter(redis, keyPrefix, limit, window, trustedProxies)
-	return limiter.Middleware()
+	return limiter.RateLimiter()
 }
 
-func (l *RateLimiter) Middleware() func(http.Handler) http.Handler {
+func (l *RateLimiter) RateLimiter() func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			identifier := l.getClientIdentifier(r)

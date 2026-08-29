@@ -1,16 +1,6 @@
 package main
 
 import (
-	"chat-v2/internal/auth"
-	"chat-v2/internal/config"
-	"chat-v2/internal/conversation"
-	"chat-v2/internal/message"
-	"chat-v2/internal/middleware"
-	"chat-v2/internal/pkg/logger"
-	"chat-v2/internal/realtime"
-	"chat-v2/internal/storage/postgres"
-	"chat-v2/internal/storage/redis"
-	"chat-v2/internal/user"
 	"context"
 	"fmt"
 	"log"
@@ -19,6 +9,21 @@ import (
 	"os/signal"
 	"syscall"
 	"time"
+
+	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
+
+	"chat-v2/internal/auth"
+	"chat-v2/internal/config"
+	"chat-v2/internal/conversation"
+	"chat-v2/internal/message"
+	"chat-v2/internal/metrics"
+	"chat-v2/internal/middleware"
+	"chat-v2/internal/pkg/logger"
+	"chat-v2/internal/realtime"
+	"chat-v2/internal/storage/postgres"
+	"chat-v2/internal/storage/redis"
+	"chat-v2/internal/user"
 )
 
 func main() {
@@ -32,6 +37,9 @@ func main() {
 	logger.Init(cfg.Env)
 	logger.Info("Starting Relay server...")
 
+	// Register Prometheus metrics
+	metrics.Register(prometheus.DefaultRegisterer)
+
 	// Connect to Postgres
 	db, err := postgres.NewClient(cfg.DBSource)
 	if err != nil {
@@ -42,7 +50,7 @@ func main() {
 	logger.Info("Database connected")
 
 	// Connect to Redis
-	redisClient, err := redis.NewClientOrBoot(cfg.RedisAddr, cfg.RedisUsername, cfg.RedisPassword, cfg.RedisDB, cfg.Env)
+	redisClient, err := redis.NewClient(cfg.RedisAddr, cfg.RedisUsername, cfg.RedisPassword, cfg.RedisDB, cfg.RedisTLS)
 	if err != nil || redisClient == nil {
 		if cfg.Env == "production" {
 			log.Fatalf("Redis required in production: %v", err)
@@ -145,8 +153,17 @@ func main() {
 	// WebSocket
 	mux.Handle("/api/ws", wsRL(authMW(wsHandler)))
 
+	// Metrics endpoint
+	mux.Handle("/metrics", promhttp.Handler())
+
 	// Apply CORS
 	handler := middleware.CORS(cfg.WSAllowedOrigins)(mux)
+
+	// Apply Prometheus metrics middleware
+	handler = middleware.Metrics()(handler)
+
+	// Apply logging middleware
+	// handler = middleware.Logging(logger.GetLogger())(handler)
 
 	// Start server
 	server := &http.Server{
