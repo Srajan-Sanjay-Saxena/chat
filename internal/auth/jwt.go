@@ -11,6 +11,10 @@ import (
 	"github.com/google/uuid"
 )
 
+type contextKey string
+
+const userContextKey = contextKey("userID")
+
 type JWTMaker struct {
 	secretKey string
 }
@@ -20,9 +24,10 @@ type Claims struct {
 }
 
 func NewJWTMaker(secretKey string) (*JWTMaker, error) {
-	if secretKey == "" {
-		return nil, errors.New("JWT secret key cannot be empty")
+	if len(secretKey) < 32 {
+		return nil, errors.New("JWT secret key is too short; must be at least 32 characters")
 	}
+	
 	return &JWTMaker{secretKey: secretKey}, nil
 }
 
@@ -93,10 +98,6 @@ func ExtractTokenFromCookie(r *http.Request) (string, error) {
 }
 
 // Context key for user ID
-type contextKey string
-
-const userContextKey = contextKey("userID")
-
 func SetUserInContext(ctx context.Context, userID uuid.UUID) context.Context {
 	return context.WithValue(ctx, userContextKey, userID)
 }
