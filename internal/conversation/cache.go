@@ -1,7 +1,6 @@
 package conversation
 
 import (
-	"chat-v2/internal/pkg/logger"
 	"context"
 	"fmt"
 	"time"
@@ -9,6 +8,9 @@ import (
 	"github.com/google/uuid"
 	goredis "github.com/redis/go-redis/v9"
 	"golang.org/x/sync/singleflight"
+
+	"chat-v2/internal/metrics"
+	"chat-v2/internal/pkg/logger"
 )
 
 const participantCacheTTL = 1 * time.Hour
@@ -28,6 +30,8 @@ func participantKey(convID uuid.UUID) string {
 }
 
 func (c *ParticipantCache) IsParticipant(ctx context.Context, conversationID, userID uuid.UUID) (bool, error) {
+	start := time.Now()
+
 	if c.redis == nil {
 		return c.repo.IsParticipant(ctx, conversationID, userID)
 	}
@@ -36,20 +40,44 @@ func (c *ParticipantCache) IsParticipant(ctx context.Context, conversationID, us
 
 	// Try cache first
 	exists, err := c.redis.Exists(ctx, key).Result()
-	if err == nil && exists > 0 {
-		isMember, err := c.redis.SIsMember(ctx, key, userID.String()).Result()
-		if err == nil {
-			return isMember, nil
-		}
+
+	if err != nil {
+		// Redis error — log and fallback to DB
+		logger.Warn("Redis error while checking participant cache", "error", err)
+
+		// fallback to DB query
+		return c.repo.IsParticipant(ctx, conversationID, userID)
 	}
 
-	// Cache miss or Redis error — ask DB directly (targeted EXISTS query, cheap)
+	if exists > 0 {
+		isMember, err := c.redis.SIsMember(ctx, key, userID.String()).Result()
+		if err != nil {
+			// Redis error — log and fallback to DB
+			logger.Warn("Redis error while checking participant membership", "error", err)
+
+			// fallback to DB query
+			return c.repo.IsParticipant(ctx, conversationID, userID)
+		}
+
+		// clean hit
+		metrics.CacheHitsTotal.WithLabelValues("participant").Inc()
+		metrics.CacheOperationsDuration.WithLabelValues("participant", "check").Observe(time.Since(start).Seconds())
+
+		return isMember, nil
+	}
+
+	// exists == 0, cache miss
+	metrics.CacheMissesTotal.WithLabelValues("participant").Inc()
+	metrics.CacheOperationsDuration.WithLabelValues("participant", "check").Observe(time.Since(start).Seconds())
+
+	// fallback to DB query
 	isMember, err := c.repo.IsParticipant(ctx, conversationID, userID)
 	if err != nil {
 		return false, err
 	}
 
-	// Populate cache in background using singleflight (only one populate per conversation)
+	// cache the result for future requests since it is a miss not redis error
+	// Populate cache asynchronously to avoid blocking the request
 	go c.populateIfMissing(conversationID)
 
 	return isMember, nil
@@ -90,6 +118,12 @@ func (c *ParticipantCache) populate(ctx context.Context, conversationID uuid.UUI
 		return
 	}
 
+	start := time.Now()
+	defer func() {
+		duration := time.Since(start)
+		metrics.CacheOperationsDuration.WithLabelValues("participant", "populate").Observe(duration.Seconds())
+	}()
+
 	key := participantKey(conversationID)
 
 	// Use a pipeline to set the members and expiration atomically
@@ -113,6 +147,13 @@ func (c *ParticipantCache) Add(ctx context.Context, conversationID, userID uuid.
 	if c.redis == nil {
 		return
 	}
+
+	start := time.Now()
+	defer func() {
+		duration := time.Since(start)
+		metrics.CacheOperationsDuration.WithLabelValues("participant", "add").Observe(duration.Seconds())
+	}()
+
 	key := participantKey(conversationID)
 	exists, _ := c.redis.Exists(ctx, key).Result()
 	if exists > 0 {
@@ -124,13 +165,28 @@ func (c *ParticipantCache) Remove(ctx context.Context, conversationID, userID uu
 	if c.redis == nil {
 		return
 	}
+
+	start := time.Now()
+	defer func() {
+		duration := time.Since(start)
+		metrics.CacheOperationsDuration.WithLabelValues("participant", "remove").Observe(duration.Seconds())
+	}()
+
 	key := participantKey(conversationID)
 	c.redis.SRem(ctx, key, userID.String())
 }
 
 func (c *ParticipantCache) Invalidate(ctx context.Context, conversationID uuid.UUID) {
+
 	if c.redis == nil {
 		return
 	}
+
+	start := time.Now()
+	defer func() {
+		duration := time.Since(start)
+		metrics.CacheOperationsDuration.WithLabelValues("participant", "invalidate").Observe(duration.Seconds())
+	}()
+
 	c.redis.Del(ctx, participantKey(conversationID))
 }
