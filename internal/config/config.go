@@ -8,7 +8,11 @@ import (
 	"github.com/caarlos0/env/v11"
 	"github.com/go-playground/validator/v10"
 	"github.com/joho/godotenv"
+
+	constants "chat-v2/internal/constants"
 )
+
+var Configuration *Config
 
 type Config struct {
 	Env              string   `env:"ENV" envDefault:"development"`
@@ -23,6 +27,17 @@ type Config struct {
 	WSAllowedOrigins []string `env:"WS_ALLOWED_ORIGINS" envSeparator:","`
 	TrustedProxies   int      `env:"TRUSTED_PROXIES" envDefault:"0"` // 0 = don't trust XFF, 1+ = number of trusted proxies
 }
+
+func init(){
+	var err error
+	path := constants.EnvPath;
+	
+	Configuration, err = Load(path)
+	if err != nil {
+		log.Fatalf("failed to load config: %v", err)
+	}
+}
+
 
 func Load(envPath string) (*Config, error) {
 	if err := godotenv.Load(envPath); err != nil {
