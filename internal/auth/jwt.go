@@ -2,7 +2,6 @@ package auth
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"net/http"
 	"time"
@@ -12,6 +11,10 @@ import (
 
 	cfg "chat-v2/internal/config"
 )
+
+type contextKey string
+
+const userContextKey = contextKey("userID")
 
 type JWTMaker struct {
 	secretKey string
@@ -24,9 +27,6 @@ type Claims struct {
 
 func NewJWTMaker() (*JWTMaker, error) {
 	secretKey := cfg.Configuration.JWTSecret
-	if secretKey == "" {
-		return nil, errors.New("JWT_SECRET environment variable is not set")
-	}
 	return &JWTMaker{secretKey: secretKey}, nil
 }
 
@@ -58,7 +58,7 @@ func (m *JWTMaker) VerifyToken(tokenStr string) (*Claims, error) {
 		return nil, fmt.Errorf("token is empty")
 	}
 
-	token, err := jwt.ParseWithClaims(tokenStr, &Claims{}, func(token *jwt.Token) (interface{}, error) {
+	token, err := jwt.ParseWithClaims(tokenStr, &Claims{}, func(token *jwt.Token) (any, error) {
 		if token.Method.Alg() != jwt.SigningMethodHS256.Alg() {
 			return nil, fmt.Errorf("unexpected signing method")
 		}
@@ -93,10 +93,6 @@ func ExtractTokenFromCookie(r *http.Request) (string, error) {
 }
 
 // Context key for user ID
-type contextKey string
-
-const userContextKey = contextKey("userID")
-
 func SetUserInContext(ctx context.Context, userID uuid.UUID) context.Context {
 	return context.WithValue(ctx, userContextKey, userID)
 }
