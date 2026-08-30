@@ -1,11 +1,6 @@
 package conversation
 
 import (
-	"chat-v2/internal/auth"
-	"chat-v2/internal/domain/ent/conversation"
-	"chat-v2/internal/pkg/logger"
-	"chat-v2/internal/storage/redis"
-	"chat-v2/internal/user"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -13,13 +8,19 @@ import (
 	"strings"
 
 	"github.com/google/uuid"
+
+	"chat-v2/internal/auth"
+	"chat-v2/internal/domain/ent/conversation"
+	"chat-v2/internal/pkg/logger"
+	"chat-v2/internal/storage/redis"
+	"chat-v2/internal/user"
 )
 
 type Handler struct {
-	repo       *Repository
-	userRepo   *user.Repository
-	presence   *redis.PresenceStore
-	partCache  *ParticipantCache
+	repo      *Repository
+	userRepo  *user.Repository
+	presence  *redis.PresenceStore
+	partCache *ParticipantCache
 }
 
 func NewHandler(repo *Repository, userRepo *user.Repository, presence *redis.PresenceStore, partCache *ParticipantCache) *Handler {
@@ -85,7 +86,7 @@ func (h *Handler) Create() http.Handler {
 				usernameOrder = append(usernameOrder, clean)
 			}
 		}
-		
+
 		// Add current user
 		key := strings.ToLower(currentUser.Username)
 		if _, exists := usernameSet[key]; !exists {

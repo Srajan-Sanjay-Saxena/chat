@@ -44,8 +44,9 @@ func Metrics() func(http.Handler) http.Handler {
 			status := strconv.Itoa(recorder.status)
 
 			// Record metrics
-			metrics.HTTPRequestsTotal.WithLabelValues(r.Method, r.URL.Path, status).Inc()
-			metrics.HTTPRequestsDuration.WithLabelValues(r.Method, r.URL.Path).Observe(duration.Seconds())
+			// Use r.Pattern to get the route pattern instead of r.URL.Path for better aggregation in Prometheus
+			metrics.HTTPRequestsTotal.WithLabelValues(r.Method, r.Pattern, status).Inc()
+			metrics.HTTPRequestsDuration.WithLabelValues(r.Method, r.Pattern).Observe(duration.Seconds())
 
 		})
 	}

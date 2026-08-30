@@ -1,33 +1,53 @@
 package conversation_test
 
 import (
-	"chat-v2/internal/conversation"
-	"chat-v2/internal/domain/ent"
-	"chat-v2/internal/testutil"
-	"chat-v2/internal/user"
 	"context"
+	"fmt"
 	"os"
 	"testing"
 
 	"github.com/google/uuid"
+
+	"chat-v2/internal/conversation"
+	"chat-v2/internal/domain/ent"
+	"chat-v2/internal/testutil"
+	"chat-v2/internal/user"
 )
 
 var testDSN string
+
+// dbAvailable is false when the Postgres testcontainer could not start (e.g. no
+// Docker on the host). DB-backed tests should call requireDB(t) to skip cleanly
+// instead of failing; unit tests that don't need Postgres still run.
+var dbAvailable bool
 
 func TestMain(m *testing.M) {
 	ctx := context.Background()
 
 	pg, err := testutil.StartPostgres(ctx)
 	if err != nil {
-		panic("failed to start postgres: " + err.Error())
+		// No Docker/Postgres available: run the non-DB tests anyway. DB tests
+		// self-skip via requireDB(t).
+		fmt.Fprintf(os.Stderr, "warning: postgres unavailable, DB tests will be skipped: %v\n", err)
+		os.Exit(m.Run())
 	}
 
+	dbAvailable = true
 	testDSN = pg.DSN
 
 	code := m.Run()
 
 	pg.Container.Terminate(ctx)
 	os.Exit(code)
+}
+
+// requireDB skips the calling test when the Postgres testcontainer is not
+// available (no Docker on the host).
+func requireDB(t *testing.T) {
+	t.Helper()
+	if !dbAvailable {
+		t.Skip("skipping: Postgres testcontainer not available (Docker required)")
+	}
 }
 
 type testEnv struct {
@@ -38,6 +58,7 @@ type testEnv struct {
 
 func setup(t *testing.T) *testEnv {
 	t.Helper()
+	requireDB(t)
 	client := testutil.NewEntClient(t, testDSN)
 
 	t.Cleanup(func() {
@@ -66,12 +87,12 @@ func TestCreate(t *testing.T) {
 	ctx := context.Background()
 
 	tests := []struct {
-		name          string
-		convType      string
-		title         string
-		canonicalName string
-		wantType      string
-		checkTitle    bool
+		name           string
+		convType       string
+		title          string
+		canonicalName  string
+		wantType       string
+		checkTitle     bool
 		checkCanonical bool
 	}{
 		{
@@ -136,12 +157,12 @@ func TestCreateWithParticipants(t *testing.T) {
 	ctx := context.Background()
 
 	tests := []struct {
-		name             string
-		convType         string
-		title            string
-		canonicalName    string
-		participants     []string
-		wantCount        int
+		name          string
+		convType      string
+		title         string
+		canonicalName string
+		participants  []string
+		wantCount     int
 	}{
 		{
 			name:          "private two users",

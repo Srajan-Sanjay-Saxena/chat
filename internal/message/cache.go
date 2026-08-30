@@ -1,6 +1,7 @@
 package message
 
 import (
+	"chat-v2/internal/metrics"
 	"chat-v2/internal/pkg/logger"
 	"context"
 	"encoding/json"
@@ -43,11 +44,23 @@ func (c *RedisCache) GetRecent(ctx context.Context, conversationID uuid.UUID) ([
 		return nil, nil
 	}
 
+	start := time.Now()
 	key := cacheKey(conversationID)
 	vals, err := c.client.ZRange(ctx, key, 0, -1).Result()
-	if err != nil || len(vals) == 0 {
+	if err != nil {
+		// Redis error: not a hit, not a clean miss — surface the error.
 		return nil, err
 	}
+
+	metrics.CacheOperationsDuration.WithLabelValues("message", "get_recent").Observe(time.Since(start).Seconds())
+
+	if len(vals) == 0 {
+		// Clean miss: cache is up but has nothing for this conversation.
+		metrics.CacheMissesTotal.WithLabelValues("message").Inc()
+		return nil, nil
+	}
+
+	metrics.CacheHitsTotal.WithLabelValues("message").Inc()
 
 	messages := make([]*Message, 0, len(vals))
 	for _, val := range vals {
@@ -132,10 +145,17 @@ func NewMemoryCache(ttl time.Duration) *MemoryCache {
 }
 
 func (c *MemoryCache) GetRecent(ctx context.Context, conversationID uuid.UUID) ([]*Message, error) {
+	start := time.Now()
 	key := conversationID.String()
-	if val, found := c.cache.Get(key); found {
+	val, found := c.cache.Get(key)
+	metrics.CacheOperationsDuration.WithLabelValues("message", "get_recent").Observe(time.Since(start).Seconds())
+
+	if found {
+		metrics.CacheHitsTotal.WithLabelValues("message").Inc()
 		return val.([]*Message), nil
 	}
+
+	metrics.CacheMissesTotal.WithLabelValues("message").Inc()
 	return nil, nil
 }
 

@@ -26,15 +26,17 @@ const (
 type Handler struct {
 	hub        *Hub
 	convRepo   *conversation.Repository
+	partCache  *conversation.ParticipantCache
 	msgService *message.CachedService
 	presence   *redis.PresenceStore
 	upgrader   websocket.Upgrader
 }
 
-func NewHandler(hub *Hub, convRepo *conversation.Repository, msgService *message.CachedService, presence *redis.PresenceStore, allowedOrigins []string) *Handler {
+func NewHandler(hub *Hub, convRepo *conversation.Repository, partCache *conversation.ParticipantCache, msgService *message.CachedService, presence *redis.PresenceStore, allowedOrigins []string) *Handler {
 	return &Handler{
 		hub:        hub,
 		convRepo:   convRepo,
+		partCache:  partCache,
 		msgService: msgService,
 		presence:   presence,
 		upgrader: websocket.Upgrader{
@@ -163,7 +165,7 @@ func (h *Handler) handleMessage(client *Client, data []byte) {
 		}
 
 	case "subscribe":
-		if ok, _ := h.convRepo.IsParticipant(context.Background(), msg.ConversationID, client.UserID()); ok {
+		if ok, _ := h.partCache.IsParticipant(context.Background(), msg.ConversationID, client.UserID()); ok {
 			h.hub.Subscribe(client, msg.ConversationID)
 		}
 

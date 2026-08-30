@@ -113,8 +113,8 @@ func main() {
 	// Init handlers
 	userHandler := user.NewHandler(userRepo, jwtMaker)
 	convHandler := conversation.NewHandler(convRepo, userRepo, presenceStore, partCache)
-	msgHandler := message.NewHandler(msgRepo, convRepo, msgCache)
-	wsHandler := realtime.NewHandler(hub, convRepo, cachedMsgService, presenceStore, cfg.WSAllowedOrigins)
+	msgHandler := message.NewHandler(msgRepo, convRepo, msgCache, partCache)
+	wsHandler := realtime.NewHandler(hub, convRepo, partCache, cachedMsgService, presenceStore, cfg.WSAllowedOrigins)
 
 	// Setup routes
 	mux := http.NewServeMux()
