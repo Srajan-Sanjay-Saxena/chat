@@ -5,11 +5,12 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
-	"os"
 	"time"
 
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/google/uuid"
+
+	cfg "chat-v2/internal/config"
 )
 
 type JWTMaker struct {
@@ -22,7 +23,7 @@ type Claims struct {
 }
 
 func NewJWTMaker() (*JWTMaker, error) {
-	secretKey := os.Getenv("JWT_SECRET")
+	secretKey := cfg.Configuration.JWTSecret
 	if secretKey == "" {
 		return nil, errors.New("JWT_SECRET environment variable is not set")
 	}
