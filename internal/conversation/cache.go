@@ -1,20 +1,24 @@
 package conversation
 
 import (
-	"chat-v2/internal/pkg/logger"
 	"context"
 	"fmt"
 	"time"
 
 	"github.com/google/uuid"
 	goredis "github.com/redis/go-redis/v9"
+	"golang.org/x/sync/singleflight"
+
+	"chat-v2/internal/metrics"
+	"chat-v2/internal/pkg/logger"
 )
 
 const participantCacheTTL = 1 * time.Hour
 
 type ParticipantCache struct {
-	redis *goredis.Client
-	repo  *Repository
+	redis         *goredis.Client
+	repo          *Repository
+	populateGroup singleflight.Group // prevents concurrent populate storms
 }
 
 func NewParticipantCache(redis *goredis.Client, repo *Repository) *ParticipantCache {
@@ -26,60 +30,111 @@ func participantKey(convID uuid.UUID) string {
 }
 
 func (c *ParticipantCache) IsParticipant(ctx context.Context, conversationID, userID uuid.UUID) (bool, error) {
+	start := time.Now()
+
 	if c.redis == nil {
 		return c.repo.IsParticipant(ctx, conversationID, userID)
 	}
 
 	key := participantKey(conversationID)
 
+	// Try cache first
 	exists, err := c.redis.Exists(ctx, key).Result()
+
 	if err != nil {
-		logger.Warn("Redis error, falling back to DB", "error", err)
+		// Redis error — log and fallback to DB
+		logger.Warn("Redis error while checking participant cache", "error", err)
+
+		// fallback to DB query
 		return c.repo.IsParticipant(ctx, conversationID, userID)
 	}
 
 	if exists > 0 {
 		isMember, err := c.redis.SIsMember(ctx, key, userID.String()).Result()
 		if err != nil {
-			logger.Warn("Redis SISMEMBER error, falling back to DB", "error", err)
+			// Redis error — log and fallback to DB
+			logger.Warn("Redis error while checking participant membership", "error", err)
+
+			// fallback to DB query
 			return c.repo.IsParticipant(ctx, conversationID, userID)
 		}
+
+		// clean hit
+		metrics.CacheHitsTotal.WithLabelValues("participant").Inc()
+		metrics.CacheOperationsDuration.WithLabelValues("participant", "check").Observe(time.Since(start).Seconds())
+
 		return isMember, nil
 	}
 
-	// Cache miss
-	members, err := c.repo.GetParticipants(ctx, conversationID)
+	// exists == 0, cache miss
+	metrics.CacheMissesTotal.WithLabelValues("participant").Inc()
+	metrics.CacheOperationsDuration.WithLabelValues("participant", "check").Observe(time.Since(start).Seconds())
+
+	// fallback to DB query
+	isMember, err := c.repo.IsParticipant(ctx, conversationID, userID)
 	if err != nil {
 		return false, err
 	}
 
-	go c.populate(conversationID, members)
+	// cache the result for future requests since it is a miss not redis error
+	// Populate cache asynchronously to avoid blocking the request
+	go c.populateIfMissing(conversationID)
 
-	for _, memberID := range members {
-		if memberID == userID {
-			return true, nil
-		}
-	}
-	return false, nil
+	return isMember, nil
 }
 
-func (c *ParticipantCache) populate(conversationID uuid.UUID, members []uuid.UUID) {
+func (c *ParticipantCache) populateIfMissing(conversationID uuid.UUID) {
+	if c.redis == nil {
+		return
+	}
+
+	key := conversationID.String()
+
+	// singleflight ensures only one goroutine populates, others wait or return
+	c.populateGroup.Do(key, func() (any, error) {
+		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+		defer cancel()
+
+		redisKey := participantKey(conversationID)
+
+		// Check if already populated
+		exists, _ := c.redis.Exists(ctx, redisKey).Result()
+		if exists > 0 {
+			return nil, nil
+		}
+
+		members, err := c.repo.GetParticipants(ctx, conversationID)
+		if err != nil || len(members) == 0 {
+			return nil, err
+		}
+
+		c.populate(ctx, conversationID, members)
+		return nil, nil
+	})
+}
+
+func (c *ParticipantCache) populate(ctx context.Context, conversationID uuid.UUID, members []uuid.UUID) {
 	if c.redis == nil || len(members) == 0 {
 		return
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
-	defer cancel()
+	start := time.Now()
+	defer func() {
+		duration := time.Since(start)
+		metrics.CacheOperationsDuration.WithLabelValues("participant", "populate").Observe(duration.Seconds())
+	}()
 
 	key := participantKey(conversationID)
 
+	// Use a pipeline to set the members and expiration atomically
 	pipe := c.redis.Pipeline()
 	pipe.Del(ctx, key)
 
-	memberStrs := make([]interface{}, len(members))
+	memberStrs := make([]any, len(members))
 	for i, m := range members {
 		memberStrs[i] = m.String()
 	}
+
 	pipe.SAdd(ctx, key, memberStrs...)
 	pipe.Expire(ctx, key, participantCacheTTL)
 
@@ -92,6 +147,13 @@ func (c *ParticipantCache) Add(ctx context.Context, conversationID, userID uuid.
 	if c.redis == nil {
 		return
 	}
+
+	start := time.Now()
+	defer func() {
+		duration := time.Since(start)
+		metrics.CacheOperationsDuration.WithLabelValues("participant", "add").Observe(duration.Seconds())
+	}()
+
 	key := participantKey(conversationID)
 	exists, _ := c.redis.Exists(ctx, key).Result()
 	if exists > 0 {
@@ -103,13 +165,28 @@ func (c *ParticipantCache) Remove(ctx context.Context, conversationID, userID uu
 	if c.redis == nil {
 		return
 	}
+
+	start := time.Now()
+	defer func() {
+		duration := time.Since(start)
+		metrics.CacheOperationsDuration.WithLabelValues("participant", "remove").Observe(duration.Seconds())
+	}()
+
 	key := participantKey(conversationID)
 	c.redis.SRem(ctx, key, userID.String())
 }
 
 func (c *ParticipantCache) Invalidate(ctx context.Context, conversationID uuid.UUID) {
+
 	if c.redis == nil {
 		return
 	}
+
+	start := time.Now()
+	defer func() {
+		duration := time.Since(start)
+		metrics.CacheOperationsDuration.WithLabelValues("participant", "invalidate").Observe(duration.Seconds())
+	}()
+
 	c.redis.Del(ctx, participantKey(conversationID))
 }

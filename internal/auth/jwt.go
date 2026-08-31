@@ -2,14 +2,13 @@ package auth
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
 	"time"
 
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/google/uuid"
-
-	cfg "chat-v2/internal/config"
 )
 
 type contextKey string
@@ -22,11 +21,13 @@ type JWTMaker struct {
 
 type Claims struct {
 	jwt.RegisteredClaims
-	UserID uuid.UUID `json:"user_id"`
 }
 
-func NewJWTMaker() (*JWTMaker, error) {
-	secretKey := cfg.Configuration.JWTSecret
+func NewJWTMaker(secretKey string) (*JWTMaker, error) {
+	if len(secretKey) < 32 {
+		return nil, errors.New("JWT secret key is too short; must be at least 32 characters")
+	}
+	
 	return &JWTMaker{secretKey: secretKey}, nil
 }
 
@@ -46,7 +47,6 @@ func (m *JWTMaker) CreateToken(userID uuid.UUID, duration time.Duration) (string
 			IssuedAt:  jwt.NewNumericDate(now),
 			ExpiresAt: jwt.NewNumericDate(now.Add(duration)),
 		},
-		UserID: userID,
 	}
 
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
@@ -74,11 +74,16 @@ func (m *JWTMaker) VerifyToken(tokenStr string) (*Claims, error) {
 		return nil, fmt.Errorf("invalid token")
 	}
 
-	if claims.UserID == uuid.Nil {
+	if claims.Subject == "" {
 		return nil, fmt.Errorf("invalid user ID in token")
 	}
 
 	return claims, nil
+}
+
+// UserID extracts the user ID from the claims Subject field.
+func (c *Claims) UserID() (uuid.UUID, error) {
+	return uuid.Parse(c.Subject)
 }
 
 func ExtractTokenFromCookie(r *http.Request) (string, error) {

@@ -1,14 +1,15 @@
 package conversation
 
 import (
-	"chat-v2/internal/domain/ent"
-	"chat-v2/internal/domain/ent/conversation"
-	"chat-v2/internal/domain/ent/conversationparticipant"
-	"chat-v2/internal/domain/ent/user"
 	"context"
 	"errors"
 
 	"github.com/google/uuid"
+
+	"chat-v2/internal/domain/ent"
+	"chat-v2/internal/domain/ent/conversation"
+	"chat-v2/internal/domain/ent/conversationparticipant"
+	"chat-v2/internal/domain/ent/user"
 )
 
 var ErrConversationExists = errors.New("conversation already exists")

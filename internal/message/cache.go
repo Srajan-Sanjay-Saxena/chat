@@ -1,16 +1,19 @@
 package message
 
 import (
+	"chat-v2/internal/metrics"
 	"chat-v2/internal/pkg/logger"
 	"context"
 	"encoding/json"
 	"fmt"
-	"sync"
 	"time"
 
+	gocache "github.com/patrickmn/go-cache"
 	"github.com/google/uuid"
 	goredis "github.com/redis/go-redis/v9"
 )
+
+const maxCachedMessages = 100
 
 type Cache interface {
 	GetRecent(ctx context.Context, conversationID uuid.UUID) ([]*Message, error)
@@ -41,11 +44,23 @@ func (c *RedisCache) GetRecent(ctx context.Context, conversationID uuid.UUID) ([
 		return nil, nil
 	}
 
+	start := time.Now()
 	key := cacheKey(conversationID)
 	vals, err := c.client.ZRange(ctx, key, 0, -1).Result()
-	if err != nil || len(vals) == 0 {
+	if err != nil {
+		// Redis error: not a hit, not a clean miss — surface the error.
 		return nil, err
 	}
+
+	metrics.CacheOperationsDuration.WithLabelValues("message", "get_recent").Observe(time.Since(start).Seconds())
+
+	if len(vals) == 0 {
+		// Clean miss: cache is up but has nothing for this conversation.
+		metrics.CacheMissesTotal.WithLabelValues("message").Inc()
+		return nil, nil
+	}
+
+	metrics.CacheHitsTotal.WithLabelValues("message").Inc()
 
 	messages := make([]*Message, 0, len(vals))
 	for _, val := range vals {
@@ -77,7 +92,7 @@ func (c *RedisCache) SetRecent(ctx context.Context, conversationID uuid.UUID, me
 		pipe.ZAdd(ctx, key, goredis.Z{Score: score, Member: string(payload)})
 	}
 
-	pipe.ZRemRangeByRank(ctx, key, 0, -101)
+	pipe.ZRemRangeByRank(ctx, key, 0, -(maxCachedMessages + 1))
 	pipe.Expire(ctx, key, c.ttl)
 
 	_, err := pipe.Exec(ctx)
@@ -98,7 +113,7 @@ func (c *RedisCache) AddMessage(ctx context.Context, conversationID uuid.UUID, m
 	score := float64(msg.CreatedAt.UnixNano() / int64(time.Millisecond))
 	pipe := c.client.Pipeline()
 	pipe.ZAdd(ctx, key, goredis.Z{Score: score, Member: string(payload)})
-	pipe.ZRemRangeByRank(ctx, key, 0, -101)
+	pipe.ZRemRangeByRank(ctx, key, 0, -(maxCachedMessages + 1))
 	pipe.Expire(ctx, key, c.ttl)
 
 	_, err = pipe.Exec(ctx)
@@ -112,76 +127,67 @@ func (c *RedisCache) Invalidate(ctx context.Context, conversationID uuid.UUID) e
 	return c.client.Del(ctx, cacheKey(conversationID)).Err()
 }
 
-// MemoryCache implements Cache using in-memory map
+// MemoryCache implements Cache using go-cache with automatic expiration
 type MemoryCache struct {
-	items map[uuid.UUID]*memoryItem
-	mu    sync.RWMutex
+	cache *gocache.Cache
 	ttl   time.Duration
-}
-
-type memoryItem struct {
-	messages []*Message
-	expires  time.Time
 }
 
 func NewMemoryCache(ttl time.Duration) *MemoryCache {
 	if ttl <= 0 {
 		ttl = 10 * time.Minute
 	}
+	// Create cache with default expiration and cleanup interval (1.5x TTL)
 	return &MemoryCache{
-		items: make(map[uuid.UUID]*memoryItem),
+		cache: gocache.New(ttl, ttl*3/2),
 		ttl:   ttl,
 	}
 }
 
 func (c *MemoryCache) GetRecent(ctx context.Context, conversationID uuid.UUID) ([]*Message, error) {
-	c.mu.RLock()
-	defer c.mu.RUnlock()
+	start := time.Now()
+	key := conversationID.String()
+	val, found := c.cache.Get(key)
+	metrics.CacheOperationsDuration.WithLabelValues("message", "get_recent").Observe(time.Since(start).Seconds())
 
-	item, found := c.items[conversationID]
-	if !found || time.Now().After(item.expires) {
-		return nil, nil
+	if found {
+		metrics.CacheHitsTotal.WithLabelValues("message").Inc()
+		return val.([]*Message), nil
 	}
 
-	return item.messages, nil
+	metrics.CacheMissesTotal.WithLabelValues("message").Inc()
+	return nil, nil
 }
 
 func (c *MemoryCache) SetRecent(ctx context.Context, conversationID uuid.UUID, messages []*Message) error {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-
-	c.items[conversationID] = &memoryItem{
-		messages: messages,
-		expires:  time.Now().Add(c.ttl),
+	key := conversationID.String()
+	// Cap at maxCachedMessages
+	if len(messages) > maxCachedMessages {
+		messages = messages[len(messages)-maxCachedMessages:]
 	}
+	c.cache.Set(key, messages, gocache.DefaultExpiration)
 	return nil
 }
 
 func (c *MemoryCache) AddMessage(ctx context.Context, conversationID uuid.UUID, msg *Message) error {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-
-	item, found := c.items[conversationID]
-	if !found || time.Now().After(item.expires) {
-		c.items[conversationID] = &memoryItem{
-			messages: []*Message{msg},
-			expires:  time.Now().Add(c.ttl),
-		}
-		return nil
+	key := conversationID.String()
+	
+	var messages []*Message
+	if val, found := c.cache.Get(key); found {
+		messages = val.([]*Message)
 	}
 
-	item.messages = append(item.messages, msg)
-	if len(item.messages) > 100 {
-		item.messages = item.messages[len(item.messages)-100:]
+	messages = append(messages, msg)
+	if len(messages) > maxCachedMessages {
+		messages = messages[len(messages)-maxCachedMessages:]
 	}
-	item.expires = time.Now().Add(c.ttl)
+
+	c.cache.Set(key, messages, gocache.DefaultExpiration)
 	return nil
 }
 
 func (c *MemoryCache) Invalidate(ctx context.Context, conversationID uuid.UUID) error {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	delete(c.items, conversationID)
+	c.cache.Delete(conversationID.String())
 	return nil
 }
 

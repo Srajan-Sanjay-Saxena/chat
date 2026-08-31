@@ -19,7 +19,12 @@ func Middleware(maker *JWTMaker) func(http.Handler) http.Handler {
 				return
 			}
 
-			ctx := SetUserInContext(r.Context(), claims.UserID)
+			userID, err := claims.UserID()
+			if err != nil {
+				http.Error(w, "invalid user ID in token", http.StatusUnauthorized)
+				return
+			}
+			ctx := SetUserInContext(r.Context(), userID)
 			next.ServeHTTP(w, r.WithContext(ctx))
 		})
 	}

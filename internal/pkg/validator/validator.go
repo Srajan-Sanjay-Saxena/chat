@@ -23,7 +23,7 @@ func validateAlphanumUnderscore(fl validator.FieldLevel) bool {
 	return true
 }
 
-func Validate(req interface{}) error {
+func Validate(req any) error {
 	if err := validate.Struct(req); err != nil {
 		var validationErrors validator.ValidationErrors
 		if errors.As(err, &validationErrors) {
